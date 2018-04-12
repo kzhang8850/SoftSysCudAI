@@ -8,12 +8,56 @@
 
 using namespace std;
 
+//------------------Template to set the Host to Device functionalities-------------
+
+template <class T>
+class CUDAClass {
+private:
+    bool usrManaged;
+    T *my_d_ptr;
+public:
+    __host__ CUDAClass(void) {
+        my_d_ptr = NULL;
+        usrManaged = false;
+    }
+    __host__ ~CUDAClass(void) {
+        free_d_ptr();
+    }
+    __host__ void set_d_ptr(T* pt) {
+        if(!usrManaged && my_d_ptr) cudaFree(my_d_ptr);
+        my_d_ptr = pt; usrManaged=true;
+    }
+    __host__ T* d_ptr(void) {
+        if(!my_d_ptr) {
+            cudaMalloc(&my_d_ptr, sizeof(T));
+            usrManaged = false;
+        }
+        cptHtoD();
+        return my_d_ptr;
+    }
+    __host__ void free_d_ptr(void) {
+        if(!usrManaged && my_d_ptr) {cudaFree(my_d_ptr);}
+        my_d_ptr = NULL;
+        usrManaged = false;
+    }
+    __host__ void cpyHtoD(void) {
+        if(!my_d_ptr) {my_d_ptr = d_ptr();}
+        cudaMemcpy(my_d_ptr, this, sizeof(T), cudaMemcpyDefault);
+    }
+    __host__ void cpyDtoH(void) {
+        if(!my_d_ptr) my_d_ptr = d_ptr();
+        cudaMemcpy(this, my_d_ptr, sizeof(T), cudaMemcpyDefault);
+    }
+
+}
+
 //-----------------------Training Class to load training data-------------------
 
 class TrainingData
 {
 public:
     TrainingData(const string filename);
+    ~TrainingData();
     bool isEof(void) { return m_trainingDataFile.eof(); }
     void getTopology(vector<unsigned> &topology);
 
@@ -23,6 +67,7 @@ public:
 
 private:
     ifstream m_trainingDataFile;
+    CUDAClass<TrainingData> c;
 };
 
 void TrainingData::getTopology(vector<unsigned> &topology)
@@ -49,6 +94,12 @@ void TrainingData::getTopology(vector<unsigned> &topology)
 TrainingData::TrainingData(const string filename)
 {
     m_trainingDataFile.open(filename.c_str());
+}
+
+TrainingData::~TrainingData(const string filename)
+{
+    m_trainingDataFile.close();
+    c.~CUDAClass();
 }
 
 unsigned TrainingData::getNextInputs(vector<double> &inputVals)
@@ -106,6 +157,7 @@ typedef vector<Neuron> Layer;
 class Neuron{
 public:
     Neuron(unsigned numOutputs, unsigned myIndex);
+    ~Neuron();
     void setOutputVal(double val){m_outputVal = val;}
     double getOutputVal(void) const{return m_outputVal;}
     void feedforward(const Layer &prevLayer);
@@ -123,14 +175,17 @@ private:
     vector<Connection> m_outputWeights;
     unsigned m_myIndex;
     double m_gradient;
+    CUDAClass<Neuron> c;
 };
 
 double Neuron::eta = 0.15;
 double Neuron::alpha = 0.5;
 
-void Neuron::updateInputWeights(Layer &prevlayer){
-    //the weights to be updated are in the connection container in the neurons of the preceding layer
-    for(unsigned n =0 ; n < prevlayer.size();++n){
+__global__ void Neuron::d_updateInputWeights(Layer &prevLayer){
+    for(unsigned n = blockIdx.x*blockDim.x +  threadIdx.x;
+        n < prevLayer.size();
+        n += blockDim.x * gridDim.x)
+    {
         Neuron &neuron = prevlayer[n];
         double oldDeltaWeight = neuron.m_outputWeights[m_myIndex].deltaWeight;
         //individual weight, magnified by gradient and train rate, then add momentum
@@ -140,55 +195,78 @@ void Neuron::updateInputWeights(Layer &prevlayer){
         neuron.m_outputWeights[m_myIndex].weight += newDeltaWeight;
     }
 }
-double Neuron::sumDOW(const Layer &nextlayer)const{
+__device__ void Neuron::updateInputWeights(Layer &prevlayer){
+    //the weights to be updated are in the connection container in the neurons of the preceding layer
+    Neuron::d_updateInputWeights<<<1,32>>> (prevlayer);
+    cudaDeviceSynchronize();
+}
+
+__global__ void Neuron::d_sumDOW(double *sum, Layer nextLayer){
+    for(unsigned n = blockIdx.x*blockDim.x +  threadIdx.x;
+        n < nextLayer.size()-1;
+        n += blockDim.x * gridDim.x)
+    {
+        *sum += m_outputWeights[n].weight * nextLayer[n].m_gradient;
+    }
+}
+__device__ double Neuron::sumDOW(const Layer &nextlayer)const{
     double sum = 0.0;
     //sum our contributions of the errors at the nodes we feed
-    for(unsigned n =0; n < nextlayer.size()-1;++n){
-        sum += m_outputWeights[n].weight * nextlayer[n].m_gradient;
-    }
+    Neuron::d_sumDOW<<<1,32>>> (&sum, nextlayer);
+    cudaDeviceSynchronize();
     return sum;
 }
 
-void Neuron::calculateHiddenGradients(const Layer &nextlayer){
+__global__ void Neuron::calculateHiddenGradients(const Layer &nextlayer){
     double dow = sumDOW(nextlayer);
     m_gradient = dow * Neuron::transferFunctionDerivative(m_outputVal);
 }
-void Neuron::calculateOutputGradients(double targetVal){
+__device__ void Neuron::calculateOutputGradients(double targetVal){
     double delta = targetVal - m_outputVal;
     m_gradient = delta * Neuron::transferFunctionDerivative(m_outputVal);
 }
 
-double Neuron::transferFunctionDerivative(double x){
+__device__ double Neuron::transferFunctionDerivative(double x){
     return 1.0 - x * x;
 }
-double Neuron::transferFunction(double x){
+__device__ double Neuron::transferFunction(double x){
     ///tanh - output range [-1.0, 1.0]
     return tanh(x);
 }
 
-void Neuron::feedforward(const Layer & prevLayer){
+__global__ void Neuron::d_feedForward(double *sum, Layer &prevLayer){
+    for(unsigned n = blockIdx.x*blockDim.x +  threadIdx.x;
+        n < prevLayer.size();
+        n += blockDim.x * gridDim.x)
+    {
+        *sum += prevLayer[n].getOutputVal() * prevLayer[n].m_outputWeights[m_myIndex].weight;
+    }
+}
+__device__ void Neuron::feedforward(const Layer & prevLayer){
     double sum = 0.0;
 
     //sum the previous layer outputs (which are our inputs)
     // include bias node from previous layer
-    for(unsigned n = 0; n < prevLayer.size(); ++n){
-        sum += prevLayer[n].getOutputVal() * prevLayer[n].m_outputWeights[m_myIndex].weight;
-    }
-
+    Neuron::d_feedForward<<<1,32>>> (&sum, prevLayer);
+    cudaDeviceSynchronize();
     m_outputVal = Neuron::transferFunction(sum);
 }
 
-Neuron::Neuron(unsigned numOutputs, unsigned myIndex){
+__device__ Neuron::Neuron(unsigned numOutputs, unsigned myIndex){
     for (unsigned c = 0; c < numOutputs; ++c){
         m_outputWeights.push_back(Connection());
         m_outputWeights.back().weight = randomWeight();
     }
     m_myIndex = myIndex;
 }
+Neuron::~Neuron() {
+    c.~CUDAClass();
+}
 
 class Net{
 public:
     Net(const vector<unsigned> &topology);
+    ~Net();
     void feedforward(const vector<double> &inputVals);
     void backprop(const vector<double> &targetVals);
     void getResults(vector<double> &resultVals) const;
@@ -200,10 +278,12 @@ private:
     double m_error;
     double m_recentAverageError;
     static double m_recentAverageSmoothing;
+    CUDAClass<Net> c;
 };
 
 double Net::m_recentAverageSmoothing = 100.0; //Number of training samples to average over
-void Net::getResults(vector<double> &resultVals) const{
+
+__device__ void Net::getResults(vector<double> &resultVals) const{
 
     resultVals.clear();
 
@@ -214,7 +294,23 @@ void Net::getResults(vector<double> &resultVals) const{
 
 }
 
-void Net::backprop(const vector<double> &targetVals){
+__global__ void Net::hidden_backprop(Layer &hiddenLayer, Layer &nextLayer){
+    for(unsigned n = blockIdx.x*blockDim.x +  threadIdx.x;
+        n < hiddenLayer.size();
+        n += blockDim.x * gridDim.x)
+    {
+        hiddenlayer[n].calculateHiddenGradients(nextlayer);
+    }
+}
+__global__ void Net::update_weights(Layer layer, Layer prevLayer){
+    for(unsigned n = blockIdx.x*blockDim.x +  threadIdx.x;
+        n < layer.size()-1;
+        n += blockDim.x * gridDim.x)
+    {
+        layer[n].updateInputWeights(prevLayer);
+    }
+}
+__device__ void Net::backprop(const vector<double> &targetVals){
     // calculate overall net error (RMS of outputs neuron errors)
     Layer &outputLayer = m_layers.back();
     m_error = 0.0;
@@ -240,22 +336,29 @@ void Net::backprop(const vector<double> &targetVals){
         Layer &hiddenlayer = m_layers[layerNum];
         Layer &nextlayer = m_layers[layerNum+1];
 
-        for(unsigned n= 0; n < hiddenlayer.size();++n){
-            hiddenlayer[n].calculateHiddenGradients(nextlayer);
-        }
+        Net::hidden_backprop<<<1, 32>>> (hiddenlayer, nextlayer);
+        cudaDeviceSynchronize();
 
         //For all layers from outputs to first hidden layer, update connection weights
         for(unsigned layerNum = m_layers.size()-1;layerNum > 0; --layerNum){
             Layer &layer = m_layers[layerNum];
             Layer &prevlayer = m_layers[layerNum-1];
 
-            for(unsigned n= 0; n < layer.size()-1;++n){
-                layer[n].updateInputWeights(prevlayer);
-            }
+            Net::update_weights<<<1,32>>> (layer, prevLayer);
+            cudaDeviceSynchronize();
         }
     }
 }
-void Net::feedforward(const vector<double> &inputVals){
+
+__global__ void Net::d_feedForward(Layer() &prevLayer, unsigned layerNum){
+    for(unsigned n = blockIdx.x*blockDim.x +  threadIdx.x;
+        n < m_layers[layerNum].size() - 1;
+        n += blockDim.x * gridDim.x)
+    {
+        m_layers[layerNum][n].feedforward(prevLayer);
+    }
+}
+__device__ void Net::feedforward(const vector<double> &inputVals){
 
     assert(inputVals.size() == m_layers[0].size() - 1);
 
@@ -267,15 +370,12 @@ void Net::feedforward(const vector<double> &inputVals){
     //forward prop
     for(unsigned layerNum = 1; layerNum < m_layers.size(); ++layerNum){
         Layer &prevLayer = m_layers[layerNum-1];
-        for(unsigned n = 0; n < m_layers[layerNum].size() - 1; ++n){
-            m_layers[layerNum][n].feedforward(prevLayer);
-        }
+        Net::d_feedForward<<<1, 32>>> (prevLayer, layerNum);
+        cudaDeviceSynchronize();
     }
-
-
-
 }
-Net::Net(const vector<unsigned> &topology){
+
+__device__ Net::Net(const vector<unsigned> &topology){
     unsigned numLayers = topology.size();
     for(unsigned layerNum = 0; layerNum < numLayers; ++layerNum){
         m_layers.push_back(Layer());
@@ -291,8 +391,12 @@ Net::Net(const vector<unsigned> &topology){
     }
 }
 
+Net::~Net() {
+    c.~CUDAClass();
+}
 
-void showVectorVals(string label, vector<double> &v)
+
+__device__ void showVectorVals(string label, vector<double> &v)
 {
     cout << label << " ";
     for (unsigned i = 0; i < v.size(); ++i) {
