@@ -11,52 +11,26 @@
 
 using namespace std;
 
-//------------------Template to set the Host to Device functionalities-------------
+//-----Unified Memory Class Constructor; all shared memory classes inherit------
 
-template <class T>
-class CUDAClass {
-private:
-    bool usrManaged;
-    T *my_d_ptr;
+class Managed {
 public:
-    __host__ CUDAClass(void) {
-        my_d_ptr = NULL;
-        usrManaged = false;
-    }
-    __host__ ~CUDAClass(void) {
-        free_d_ptr();
-    }
-    __host__ void set_d_ptr(T* pt) {
-        if(!usrManaged && my_d_ptr) cudaFree(my_d_ptr);
-        my_d_ptr = pt; usrManaged=true;
-    }
-    __host__ T* d_ptr(void) {
-        if(!my_d_ptr) {
-            cudaMalloc(&my_d_ptr, sizeof(T));
-            usrManaged = false;
-        }
-        cptHtoD();
-        return my_d_ptr;
-    }
-    __host__ void free_d_ptr(void) {
-        if(!usrManaged && my_d_ptr) {cudaFree(my_d_ptr);}
-        my_d_ptr = NULL;
-        usrManaged = false;
-    }
-    __host__ void cpyHtoD(void) {
-        if(!my_d_ptr) {my_d_ptr = d_ptr();}
-        cudaMemcpy(my_d_ptr, this, sizeof(T), cudaMemcpyDefault);
-    }
-    __host__ void cpyDtoH(void) {
-        if(!my_d_ptr) my_d_ptr = d_ptr();
-        cudaMemcpy(this, my_d_ptr, sizeof(T), cudaMemcpyDefault);
+    void *operator new(size_t len) {
+        void *ptr;
+        cudaMallocManaged(&ptr, len);
+        cudaDeviceSynchronize();
+        return ptr;
     }
 
+    void operator delete(void *ptr) {
+        cudaDeviceSynchronize();
+        cudaFree(ptr);
+    }
 }
 
 //-----------------------Training Class to load training data-------------------
 
-class TrainingData
+class TrainingData : public Managed
 {
 public:
     TrainingData(const string filename);
@@ -70,7 +44,6 @@ public:
 
 private:
     ifstream m_trainingDataFile;
-    CUDAClass<TrainingData> c;
 };
 
 void TrainingData::getTopology(vector<unsigned> &topology)
@@ -98,11 +71,9 @@ TrainingData::TrainingData(const string filename)
 {
     m_trainingDataFile.open(filename.c_str());
 }
-
 TrainingData::~TrainingData(const string filename)
 {
     m_trainingDataFile.close();
-    c.~CUDAClass();
 }
 
 unsigned TrainingData::getNextInputs(vector<double> &inputVals)
@@ -157,10 +128,9 @@ class Neuron;
 typedef vector<Neuron> Layer;
 
 // Neuron class
-class Neuron{
+class Neuron : public Managed {
 public:
     Neuron(unsigned numOutputs, unsigned myIndex);
-    ~Neuron();
     void setOutputVal(double val){m_outputVal = val;}
     double getOutputVal(void) const{return m_outputVal;}
     void feedforward(const Layer &prevLayer);
@@ -178,7 +148,6 @@ private:
     vector<Connection> m_outputWeights;
     unsigned m_myIndex;
     double m_gradient;
-    CUDAClass<Neuron> c;
 };
 
 double Neuron::eta = 0.15;
@@ -264,14 +233,10 @@ __device__ Neuron::Neuron(unsigned numOutputs, unsigned myIndex){
     }
     m_myIndex = myIndex;
 }
-Neuron::~Neuron() {
-    c.~CUDAClass();
-}
 
-class Net{
+class Net : public Managed {
 public:
     Net(const vector<unsigned> &topology);
-    ~Net();
     void feedforward(const vector<double> &inputVals);
     void backprop(const vector<double> &targetVals);
     void getResults(vector<double> &resultVals) const;
@@ -283,7 +248,6 @@ private:
     double m_error;
     double m_recentAverageError;
     static double m_recentAverageSmoothing;
-    CUDAClass<Net> c;
 };
 
 double Net::m_recentAverageSmoothing = 100.0; //Number of training samples to average over
@@ -394,10 +358,6 @@ __device__ Net::Net(const vector<unsigned> &topology){
         //force bias to be 1.0 output
         m_layers.back().back().setOutputVal(1.0);
     }
-}
-
-Net::~Net() {
-    c.~CUDAClass();
 }
 
 
