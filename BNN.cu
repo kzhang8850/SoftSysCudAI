@@ -6,6 +6,9 @@
 #include <fstream>
 #include <sstream>
 
+#define NUM_BLOCKS 1
+#define THREADS_PER_BLOCK 32
+
 using namespace std;
 
 //------------------Template to set the Host to Device functionalities-------------
@@ -181,6 +184,8 @@ private:
 double Neuron::eta = 0.15;
 double Neuron::alpha = 0.5;
 
+//This function updates the weights of each neuron in the layer
+//prevLayer is the layer to be updated
 __global__ void Neuron::d_updateInputWeights(Layer &prevLayer){
     for(unsigned n = blockIdx.x*blockDim.x +  threadIdx.x;
         n < prevLayer.size();
@@ -197,7 +202,7 @@ __global__ void Neuron::d_updateInputWeights(Layer &prevLayer){
 }
 __device__ void Neuron::updateInputWeights(Layer &prevlayer){
     //the weights to be updated are in the connection container in the neurons of the preceding layer
-    Neuron::d_updateInputWeights<<<1,32>>> (prevlayer);
+    Neuron::d_updateInputWeights<<<NUM_BLOCKS,THREADS_PER_BLOCK>>> (prevlayer);
     cudaDeviceSynchronize();
 }
 
@@ -212,7 +217,7 @@ __global__ void Neuron::d_sumDOW(double *sum, Layer nextLayer){
 __device__ double Neuron::sumDOW(const Layer &nextlayer)const{
     double sum = 0.0;
     //sum our contributions of the errors at the nodes we feed
-    Neuron::d_sumDOW<<<1,32>>> (&sum, nextlayer);
+    Neuron::d_sumDOW<<<NUM_BLOCKS,THREADS_PER_BLOCK>>> (&sum, nextlayer);
     cudaDeviceSynchronize();
     return sum;
 }
@@ -247,7 +252,7 @@ __device__ void Neuron::feedforward(const Layer & prevLayer){
 
     //sum the previous layer outputs (which are our inputs)
     // include bias node from previous layer
-    Neuron::d_feedForward<<<1,32>>> (&sum, prevLayer);
+    Neuron::d_feedForward<<<NUM_BLOCKS,THREADS_PER_BLOCK>>> (&sum, prevLayer);
     cudaDeviceSynchronize();
     m_outputVal = Neuron::transferFunction(sum);
 }
@@ -344,7 +349,7 @@ __device__ void Net::backprop(const vector<double> &targetVals){
             Layer &layer = m_layers[layerNum];
             Layer &prevlayer = m_layers[layerNum-1];
 
-            Net::update_weights<<<1,32>>> (layer, prevLayer);
+            Net::update_weights<<<NUM_BLOCKS,THREADS_PER_BLOCK>>> (layer, prevLayer);
             cudaDeviceSynchronize();
         }
     }
