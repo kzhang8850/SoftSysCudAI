@@ -26,7 +26,7 @@ public:
         cudaDeviceSynchronize();
         cudaFree(ptr);
     }
-}
+};
 
 //-----------------------Training Class to load training data-------------------
 
