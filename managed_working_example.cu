@@ -21,24 +21,31 @@ public:
 
 class Neuron : public Managed {
 public:
-    unsigned my_cat;
+    // This is analogous to output_val
+    unsigned my_cats;
+    // This is analogous to setOutputVals
+    void eh(unsigned new_num) {my_cats = new_num;};
 };
 
-
+// This is analogous to feedforward
 __global__
-void change_cat(Neuron &n, unsigned new_val) {
-  n.my_cat = new_val;
+void change_cat(Neuron &n_original, Neuron &n_to_copy) {
+  n_original.my_cats = n_to_copy.my_cats;
 }
 
 int main(void) {
-    Neuron *n = new Neuron;
-    (*n).my_cat = 2;
-    
-    printf("%i\n", (*n).my_cat);
-    change_cat <<<1, 1>>> ((*n), 5);
-    cudaDeviceSynchronize();
-    printf("%i\n", (*n).my_cat);
+    Neuron *n1 = new Neuron;
+    (*n1).my_cats = 2;
+    Neuron *n2 = new Neuron;
+    (*n2).my_cats = 7;
 
-    delete n;
+    printf("Neuron1: %i and Neuron2: %i\n", (*n1).my_cats, (*n2).my_cats);
+    change_cat <<<1, 1>>> ((*n1), (*n2));
+    cudaDeviceSynchronize();
+    printf("Neuron1: %i and Neuron2: %i\n", (*n1).my_cats, (*n2).my_cats);
+    (*n1).eh(3);
+    printf("Neuron1: %i and Neuron2: %i\n", (*n1).my_cats, (*n2).my_cats);
+
+    delete n1; delete n2;
     return 0;
 }
