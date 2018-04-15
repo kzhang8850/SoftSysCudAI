@@ -24,10 +24,14 @@ public:
     // This is analogous to output_val
     unsigned my_cats;
     // This is analogous to setOutputVals
-    __device__ __host__ void eh(unsigned new_num) {my_cats = new_num;};
-
+    __device__ __host__ void eh(unsigned new_num); // {my_cats = new_num;};
 };
 
+__host__
+__device__
+void Neuron:: eh(unsigned new_num) {
+    my_cats = new_num;
+};
 
 class Layer : public Managed {
 public:
