@@ -290,6 +290,7 @@ __device__
 __host__
 __device__
  Layer::Layer(unsigned layer_size, unsigned num_connections) {
+    neurons = new Neuron*[layer_size];
     for (int i = 0; i<layer_size; i++) {
         neurons[i] = 
     }
