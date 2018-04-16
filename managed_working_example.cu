@@ -19,6 +19,8 @@ public:
     }
 };
 
+class Neuron;
+
 class Neuron : public Managed {
 public:
     // This is analogous to output_val
