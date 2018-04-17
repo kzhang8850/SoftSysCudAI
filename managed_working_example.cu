@@ -1,7 +1,10 @@
-#include <iostream>
-#include <math.h>
-#include <stdio.h>
 #include <vector>
+#include <iostream>
+#include <cstdlib>
+#include <cassert>
+#include <cmath>
+#include <fstream>
+#include <sstream>
 using namespace std;
 
 class Managed {
@@ -33,6 +36,7 @@ public:
 __host__
 __device__
 void Neuron:: eh(unsigned new_num) {
+    Neuron(int my_cats);
     my_cats = new_num;
 };
 
@@ -47,6 +51,7 @@ public:
 __global__
 void change_cat(Neuron &n_original, Neuron &n_to_copy) {
   n_original.my_cats = n_to_copy.my_cats;
+  tanh(2.0);
 }
 
 //Playing with Eh as a device function; it has to be called from a global. That's what this wrapper is for.
@@ -64,10 +69,10 @@ void print_cats(Layer &layer) {
 }
 
 int main(void) {
-    Neuron *n1 = new Neuron;    //New returns a pointer to the new object
-    (*n1).my_cats = 2;
-    Neuron *n2 = new Neuron;
-    (*n2).my_cats = 7;
+    Neuron *n1 = new Neuron(2);    //New returns a pointer to the new object
+    // (*n1).my_cats = 2;
+    Neuron *n2 = new Neuron(7);
+    // (*n2).my_cats = 7;
     Layer *layer = new Layer;
 
     (*layer).neurons.push_back(n1);    //Should we store a vector of pointers or a vector of neurons?

@@ -5,9 +5,15 @@
 #include <cmath>
 #include <fstream>
 #include <sstream>
+#include <curand.h>
+#include <curand_kernel.h>
 
 #define NUM_BLOCKS 1
 #define THREADS_PER_BLOCK 32
+#define INPUT_SIZE 2
+#define HIDDEN_SIZE 32
+#define OUTPUT_SIZE 1
+#define NUM_HIDDEN_LAYERS 1
 
 using namespace std;
 
@@ -27,6 +33,7 @@ public:
         cudaFree(ptr);
     }
 };
+
 
 //-----------------------Training Class to load training data-------------------
 
@@ -117,122 +124,42 @@ unsigned TrainingData::getTargetOutputs(vector<double> &targetOutputVals)
 }
 
 //----------------------------------Neural Net----------------------------------
+class Connection;
+class Neuron;
+class Layer;
+class Net;
 
-struct Connection{
+class Connection: public Managed{
     double weight;
     double deltaWeight;
 };
 
-class Neuron;
-
-typedef vector<Neuron> Layer;
-
-// Neuron class
 class Neuron : public Managed {
 public:
-    Neuron(unsigned numOutputs, unsigned myIndex);
-    void setOutputVal(double val){m_outputVal = val;}
-    double getOutputVal(void) const{return m_outputVal;}
-    void feedforward(const Layer &prevLayer);
-    void calculateOutputGradients(double targetVal);
-    void calculateHiddenGradients(const Layer &nextlayer);
+    __host__ __device__ void setOutputVal(double val){m_outputVal = val;}
+    __host__ __device__ double getOutputVal(void) const{return m_outputVal;}
+    __device__ void feedforward(const Layer &prevLayer);
+    __device__ void calculateOutputGradients(double targetVal);
+    __device__ void calculateHiddenGradients(const Layer &nextlayer);
     void updateInputWeights(Layer &prevlayer);
 private:
     static double eta; // overall learning rate [0.0-1.0]
     static double alpha; //multiplier of last weight change (momentum) [0.0 - n or 1]
-    static double transferFunction(double x);
-    static double transferFunctionDerivative(double x);
-    static double randomWeight(void) {return rand()/double(RAND_MAX);}
-    double sumDOW(const Layer &nextlayer) const;
+    __device__ static double transferFunction(double x);
+    __device__ static double transferFunctionDerivative(double x);
+    __host__ static double randomWeight(void) {return rand()/double(RAND_MAX);}
+    __device__ double sumDOW(const Layer &nextlayer) const;
     double m_outputVal;
     vector<Connection> m_outputWeights;
     unsigned m_myIndex;
     double m_gradient;
 };
 
-double Neuron::eta = 0.15;
-double Neuron::alpha = 0.5;
 
-//This function updates the weights of each neuron in the layer
-//prevLayer is the layer to be updated
-__global__ void Neuron::d_updateInputWeights(Layer &prevLayer){
-    for(unsigned n = blockIdx.x*blockDim.x +  threadIdx.x;
-        n < prevLayer.size();
-        n += blockDim.x * gridDim.x)
-    {
-        Neuron &neuron = prevlayer[n];
-        double oldDeltaWeight = neuron.m_outputWeights[m_myIndex].deltaWeight;
-        //individual weight, magnified by gradient and train rate, then add momentum
-        double newDeltaWeight = eta * neuron.getOutputVal() * m_gradient + alpha * oldDeltaWeight;
+class Layer: public Managed{
+    Neuron* neurons;        //The array of neurons
+};
 
-        neuron.m_outputWeights[m_myIndex].deltaWeight = newDeltaWeight;
-        neuron.m_outputWeights[m_myIndex].weight += newDeltaWeight;
-    }
-}
-__device__ void Neuron::updateInputWeights(Layer &prevlayer){
-    //the weights to be updated are in the connection container in the neurons of the preceding layer
-    Neuron::d_updateInputWeights<<<NUM_BLOCKS,THREADS_PER_BLOCK>>> (prevlayer);
-    cudaDeviceSynchronize();
-}
-
-__global__ void Neuron::d_sumDOW(double *sum, Layer nextLayer){
-    for(unsigned n = blockIdx.x*blockDim.x +  threadIdx.x;
-        n < nextLayer.size()-1;
-        n += blockDim.x * gridDim.x)
-    {
-        *sum += m_outputWeights[n].weight * nextLayer[n].m_gradient;
-    }
-}
-__device__ double Neuron::sumDOW(const Layer &nextlayer)const{
-    double sum = 0.0;
-    //sum our contributions of the errors at the nodes we feed
-    Neuron::d_sumDOW<<<NUM_BLOCKS,THREADS_PER_BLOCK>>> (&sum, nextlayer);
-    cudaDeviceSynchronize();
-    return sum;
-}
-
-__global__ void Neuron::calculateHiddenGradients(const Layer &nextlayer){
-    double dow = sumDOW(nextlayer);
-    m_gradient = dow * Neuron::transferFunctionDerivative(m_outputVal);
-}
-__device__ void Neuron::calculateOutputGradients(double targetVal){
-    double delta = targetVal - m_outputVal;
-    m_gradient = delta * Neuron::transferFunctionDerivative(m_outputVal);
-}
-
-__device__ double Neuron::transferFunctionDerivative(double x){
-    return 1.0 - x * x;
-}
-__device__ double Neuron::transferFunction(double x){
-    ///tanh - output range [-1.0, 1.0]
-    return tanh(x);
-}
-
-__global__ void Neuron::d_feedForward(double *sum, Layer &prevLayer){
-    for(unsigned n = blockIdx.x*blockDim.x +  threadIdx.x;
-        n < prevLayer.size();
-        n += blockDim.x * gridDim.x)
-    {
-        *sum += prevLayer[n].getOutputVal() * prevLayer[n].m_outputWeights[m_myIndex].weight;
-    }
-}
-__device__ void Neuron::feedforward(const Layer & prevLayer){
-    double sum = 0.0;
-
-    //sum the previous layer outputs (which are our inputs)
-    // include bias node from previous layer
-    Neuron::d_feedForward<<<NUM_BLOCKS,THREADS_PER_BLOCK>>> (&sum, prevLayer);
-    cudaDeviceSynchronize();
-    m_outputVal = Neuron::transferFunction(sum);
-}
-
-__device__ Neuron::Neuron(unsigned numOutputs, unsigned myIndex){
-    for (unsigned c = 0; c < numOutputs; ++c){
-        m_outputWeights.push_back(Connection());
-        m_outputWeights.back().weight = randomWeight();
-    }
-    m_myIndex = myIndex;
-}
 
 class Net : public Managed {
 public:
@@ -244,15 +171,134 @@ public:
 
 
 private:
-    vector<Layer> m_layers; //m_layers[layerNum][neuronNum]
+    Layer* layers[NUM_HIDDEN_LAYERS + 2]; //m_layers[layerNum][neuronNum]
     double m_error;
     double m_recentAverageError;
     static double m_recentAverageSmoothing;
 };
 
+double Neuron::eta = 0.15;
+double Neuron::alpha = 0.5;
 double Net::m_recentAverageSmoothing = 100.0; //Number of training samples to average over
 
-__device__ void Net::getResults(vector<double> &resultVals) const{
+
+//This function updates the weights of each neuron in the layer
+//prevLayer is the layer to be updated
+__global__ 
+void d_updateInputWeights(Neuron &neuron, Layer &prevLayer){
+    for(unsigned n = blockIdx.x*blockDim.x +  threadIdx.x;
+        n < prevLayer.size();
+        n += blockDim.x * gridDim.x)
+    {
+        Neuron &prev_neuron = prevlayer[n];
+        double oldDeltaWeight = prev_neuron.m_outputWeights[neuron.m_myIndex].deltaWeight;
+        //individual weight, magnified by gradient and train rate, then add momentum
+        double newDeltaWeight = neuron.eta * prev_neuron.getOutputVal() * neuron.m_gradient + neuron.alpha * oldDeltaWeight;
+
+        prev_neuron.m_outputWeights[m_myIndex].deltaWeight = newDeltaWeight;
+        prev_neuron.m_outputWeights[m_myIndex].weight += newDeltaWeight;
+    }
+}
+
+
+__global__ 
+void d_sumDOW(double *sum, Layer &nextLayer){
+    for(unsigned n = blockIdx.x*blockDim.x +  threadIdx.x;
+        n < nextLayer.size()-1;
+        n += blockDim.x * gridDim.x)
+    {
+        *sum += m_outputWeights[n].weight * nextLayer[n].m_gradient;
+    }
+}
+
+
+__global__ 
+void calculateHiddenGradients(Neuron &neuron, const Layer &nextlayer){
+    double dow = neuron.sumDOW(nextlayer);
+    neuron.m_gradient = dow * Neuron::transferFunctionDerivative(neuron.m_outputVal);
+}
+
+
+__global__ 
+void d_feedForward(Neuron &neuron, double *sum, Layer &prevLayer){
+    for(unsigned n = blockIdx.x*blockDim.x +  threadIdx.x;
+        n < prevLayer.size();
+        n += blockDim.x * gridDim.x)
+    {
+        *sum += prevLayer[n].getOutputVal() * prevLayer[n].m_outputWeights[neuron.m_myIndex].weight;
+    }
+}
+
+
+__device__ 
+void Neuron::updateInputWeights(Layer &prevlayer){
+    //the weights to be updated are in the connection container in the neurons of the preceding layer
+    d_updateInputWeights<<<NUM_BLOCKS,THREADS_PER_BLOCK>>> (this, prevlayer);
+    cudaDeviceSynchronize();
+}
+
+
+__device__ 
+double Neuron::sumDOW(const Layer &nextlayer)const{
+    double sum = 0.0;
+    //sum our contributions of the errors at the nodes we feed
+    d_sumDOW<<<NUM_BLOCKS,THREADS_PER_BLOCK>>> (this, &sum, nextlayer);
+    cudaDeviceSynchronize();
+    return sum;
+}
+
+
+__device__ 
+void Neuron::calculateOutputGradients(double targetVal){
+    double delta = targetVal - m_outputVal;
+    m_gradient = delta * Neuron::transferFunctionDerivative(m_outputVal);
+}
+
+__device__ 
+double Neuron::transferFunctionDerivative(double x){
+    return 1.0 - x * x;
+}
+__device__ 
+double Neuron::transferFunction(double x){
+    ///tanh - output range [-1.0, 1.0]
+    return tanh(x);
+}
+
+
+__device__ 
+void Neuron::feedforward(const Layer & prevLayer){
+    double sum = 0.0;
+
+    //sum the previous layer outputs (which are our inputs)
+    // include bias node from previous layer
+    d_feedForward<<<NUM_BLOCKS,THREADS_PER_BLOCK>>> (this, &sum, prevLayer);
+    cudaDeviceSynchronize();
+    m_outputVal = Neuron::transferFunction(sum);
+}
+
+__host__
+__device__
+ Neuron::Neuron(unsigned numOutputs, unsigned myIndex){
+    for (unsigned c = 0; c < numOutputs; ++c){
+        m_outputWeights.push_back(Connection());
+        m_outputWeights.back().weight = randomWeight();
+    }
+    m_myIndex = myIndex;
+}
+
+
+__host__
+__device__
+ Layer::Layer(unsigned layer_size, unsigned num_connections) {
+    neurons = new Neuron*[layer_size];
+    for (int i = 0; i<layer_size; i++) {
+        neurons[i] = 
+    }
+ }
+
+
+__device__ 
+void Net::getResults(vector<double> &resultVals) const{
 
     resultVals.clear();
 
@@ -263,15 +309,18 @@ __device__ void Net::getResults(vector<double> &resultVals) const{
 
 }
 
-__global__ void Net::hidden_backprop(Layer &hiddenLayer, Layer &nextLayer){
-    for(unsigned n = blockIdx.x*blockDim.x +  threadIdx.x;
-        n < hiddenLayer.size();
-        n += blockDim.x * gridDim.x)
-    {
-        hiddenlayer[n].calculateHiddenGradients(nextlayer);
-    }
+__global__ 
+void Net::hidden_backprop(Layer &hiddenLayer, Layer &nextLayer){
+    calculateHiddenGradients <<<Blah, blah>>> (args);
+    // for(unsigned n = blockIdx.x*blockDim.x +  threadIdx.x;
+    //     n < hiddenLayer.size();
+    //     n += blockDim.x * gridDim.x)
+    // {
+    //     hiddenlayer[n].calculateHiddenGradients(nextlayer);
+    // }
 }
-__global__ void Net::update_weights(Layer layer, Layer prevLayer){
+__global__ 
+void Net::update_weights(Layer layer, Layer prevLayer){
     for(unsigned n = blockIdx.x*blockDim.x +  threadIdx.x;
         n < layer.size()-1;
         n += blockDim.x * gridDim.x)
@@ -279,7 +328,9 @@ __global__ void Net::update_weights(Layer layer, Layer prevLayer){
         layer[n].updateInputWeights(prevLayer);
     }
 }
-__device__ void Net::backprop(const vector<double> &targetVals){
+
+__host__
+void Net::backprop(const vector<double> &targetVals){
     // calculate overall net error (RMS of outputs neuron errors)
     Layer &outputLayer = m_layers.back();
     m_error = 0.0;
@@ -319,7 +370,8 @@ __device__ void Net::backprop(const vector<double> &targetVals){
     }
 }
 
-__global__ void Net::d_feedForward(Layer() &prevLayer, unsigned layerNum){
+__global__ 
+void Net::d_feedForward(Layer() &prevLayer, unsigned layerNum){
     for(unsigned n = blockIdx.x*blockDim.x +  threadIdx.x;
         n < m_layers[layerNum].size() - 1;
         n += blockDim.x * gridDim.x)
@@ -327,7 +379,10 @@ __global__ void Net::d_feedForward(Layer() &prevLayer, unsigned layerNum){
         m_layers[layerNum][n].feedforward(prevLayer);
     }
 }
-__device__ void Net::feedforward(const vector<double> &inputVals){
+
+
+__host__ 
+void Net::feedforward(const vector<double> &inputVals){
 
     assert(inputVals.size() == m_layers[0].size() - 1);
 
@@ -344,24 +399,22 @@ __device__ void Net::feedforward(const vector<double> &inputVals){
     }
 }
 
-__device__ Net::Net(const vector<unsigned> &topology){
-    unsigned numLayers = topology.size();
-    for(unsigned layerNum = 0; layerNum < numLayers; ++layerNum){
-        m_layers.push_back(Layer());
-        unsigned numOutputs = layerNum == topology.size() - 1 ? 0 : topology[layerNum+1];
 
-        //We have made a new layer, now fill it with ith neurons, and add
-        //a bias neuron to the layer:
-        for(unsigned neuronNum = 0; neuronNum <= topology[layerNum]; ++neuronNum){
-            m_layers.back().push_back(Neuron(numOutputs, neuronNum));
-        }
-        //force bias to be 1.0 output
-        m_layers.back().back().setOutputVal(1.0);
+__host__
+__device__
+ Net::Net(const vector<unsigned> &topology){
+    layers[0] = new Layer(INPUT_SIZE, HIDDEN_SIZE);
+    for (int i = 1; i<HIDDEN_SIZE; i++) {
+        layers[i] = new Layer(HIDDEN_SIZE, HIDDEN_SIZE);
     }
+    layers[HIDDEN_SIZE] = new Layer(HIDDEN_SIZE, OUTPUT_SIZE);
+    layers[1 + HIDDEN_SIZE] = new Layer(OUTPUT_SIZE, 0);
+
 }
 
 
-__device__ void showVectorVals(string label, vector<double> &v)
+__device__
+void showVectorVals(string label, vector<double> &v)
 {
     cout << label << " ";
     for (unsigned i = 0; i < v.size(); ++i) {
