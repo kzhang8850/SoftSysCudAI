@@ -53,27 +53,6 @@ private:
     ifstream m_trainingDataFile;
 };
 
-void TrainingData::getTopology(vector<unsigned> &topology)
-{
-    string line;
-    string label;
-
-    getline(m_trainingDataFile, line);
-    stringstream ss(line);
-    ss >> label;
-    if (this->isEof() || label.compare("topology:") != 0) {
-        abort();
-    }
-
-    while (!ss.eof()) {
-        unsigned n;
-        ss >> n;
-        topology.push_back(n);
-    }
-
-    return;
-}
-
 TrainingData::TrainingData(const string filename)
 {
     m_trainingDataFile.open(filename.c_str());
@@ -141,7 +120,7 @@ public:
     __device__ void feedforward(const Layer &prevLayer);
     __device__ void calculateOutputGradients(double targetVal);
     __device__ void calculateHiddenGradients(const Layer &nextlayer);
-    void updateInputWeights(Layer &prevlayer);
+    __device__ void updateInputWeights(Layer &prevlayer);
 private:
     static double eta; // overall learning rate [0.0-1.0]
     static double alpha; //multiplier of last weight change (momentum) [0.0 - n or 1]
@@ -184,7 +163,9 @@ double Net::m_recentAverageSmoothing = 100.0; //Number of training samples to av
 
 //This function updates the weights of each neuron in the layer
 //prevLayer is the layer to be updated
-__global__ 
+
+//----------------------------global functions for Neuron-----------------------
+__global__
 void d_updateInputWeights(Neuron &neuron, Layer &prevLayer){
     for(unsigned n = blockIdx.x*blockDim.x +  threadIdx.x;
         n < prevLayer.size();
@@ -201,7 +182,7 @@ void d_updateInputWeights(Neuron &neuron, Layer &prevLayer){
 }
 
 
-__global__ 
+__global__
 void d_sumDOW(double *sum, Layer &nextLayer){
     for(unsigned n = blockIdx.x*blockDim.x +  threadIdx.x;
         n < nextLayer.size()-1;
@@ -212,14 +193,14 @@ void d_sumDOW(double *sum, Layer &nextLayer){
 }
 
 
-__global__ 
+__global__
 void calculateHiddenGradients(Neuron &neuron, const Layer &nextlayer){
     double dow = neuron.sumDOW(nextlayer);
     neuron.m_gradient = dow * Neuron::transferFunctionDerivative(neuron.m_outputVal);
 }
 
 
-__global__ 
+__global__
 void d_feedForward(Neuron &neuron, double *sum, Layer &prevLayer){
     for(unsigned n = blockIdx.x*blockDim.x +  threadIdx.x;
         n < prevLayer.size();
@@ -230,7 +211,9 @@ void d_feedForward(Neuron &neuron, double *sum, Layer &prevLayer){
 }
 
 
-__device__ 
+//----------------------------Neuron functions----------------------------------
+
+__device__
 void Neuron::updateInputWeights(Layer &prevlayer){
     //the weights to be updated are in the connection container in the neurons of the preceding layer
     d_updateInputWeights<<<NUM_BLOCKS,THREADS_PER_BLOCK>>> (this, prevlayer);
@@ -238,7 +221,7 @@ void Neuron::updateInputWeights(Layer &prevlayer){
 }
 
 
-__device__ 
+__device__
 double Neuron::sumDOW(const Layer &nextlayer)const{
     double sum = 0.0;
     //sum our contributions of the errors at the nodes we feed
@@ -248,24 +231,24 @@ double Neuron::sumDOW(const Layer &nextlayer)const{
 }
 
 
-__device__ 
+__device__
 void Neuron::calculateOutputGradients(double targetVal){
     double delta = targetVal - m_outputVal;
     m_gradient = delta * Neuron::transferFunctionDerivative(m_outputVal);
 }
 
-__device__ 
+__device__
 double Neuron::transferFunctionDerivative(double x){
     return 1.0 - x * x;
 }
-__device__ 
+__device__
 double Neuron::transferFunction(double x){
     ///tanh - output range [-1.0, 1.0]
     return tanh(x);
 }
 
 
-__device__ 
+__device__
 void Neuron::feedforward(const Layer & prevLayer){
     double sum = 0.0;
 
@@ -286,18 +269,22 @@ __device__
     m_myIndex = myIndex;
 }
 
+//--------------------------Layer
 
 __host__
 __device__
  Layer::Layer(unsigned layer_size, unsigned num_connections) {
     neurons = new Neuron*[layer_size];
     for (int i = 0; i<layer_size; i++) {
-        neurons[i] = 
+        neurons[i] =
     }
  }
 
 
-__device__ 
+ //-----------------------Net---------------------------------------------------
+
+
+__device__
 void Net::getResults(vector<double> &resultVals) const{
 
     resultVals.clear();
@@ -309,7 +296,9 @@ void Net::getResults(vector<double> &resultVals) const{
 
 }
 
-__global__ 
+//------------------------------global functions for Net------------------------
+
+__global__
 void Net::hidden_backprop(Layer &hiddenLayer, Layer &nextLayer){
     calculateHiddenGradients <<<Blah, blah>>> (args);
     // for(unsigned n = blockIdx.x*blockDim.x +  threadIdx.x;
@@ -319,13 +308,23 @@ void Net::hidden_backprop(Layer &hiddenLayer, Layer &nextLayer){
     //     hiddenlayer[n].calculateHiddenGradients(nextlayer);
     // }
 }
-__global__ 
+__global__
 void Net::update_weights(Layer layer, Layer prevLayer){
     for(unsigned n = blockIdx.x*blockDim.x +  threadIdx.x;
         n < layer.size()-1;
         n += blockDim.x * gridDim.x)
     {
         layer[n].updateInputWeights(prevLayer);
+    }
+}
+
+__global__
+void Net::d_feedForward(Layer() &prevLayer, unsigned layerNum){
+    for(unsigned n = blockIdx.x*blockDim.x +  threadIdx.x;
+        n < m_layers[layerNum].size() - 1;
+        n += blockDim.x * gridDim.x)
+    {
+        m_layers[layerNum][n].feedforward(prevLayer);
     }
 }
 
@@ -370,18 +369,10 @@ void Net::backprop(const vector<double> &targetVals){
     }
 }
 
-__global__ 
-void Net::d_feedForward(Layer() &prevLayer, unsigned layerNum){
-    for(unsigned n = blockIdx.x*blockDim.x +  threadIdx.x;
-        n < m_layers[layerNum].size() - 1;
-        n += blockDim.x * gridDim.x)
-    {
-        m_layers[layerNum][n].feedforward(prevLayer);
-    }
-}
 
 
-__host__ 
+
+__host__
 void Net::feedforward(const vector<double> &inputVals){
 
     assert(inputVals.size() == m_layers[0].size() - 1);
@@ -412,6 +403,7 @@ __device__
 
 }
 
+//--------------------print function--------------------------------------------
 
 __device__
 void showVectorVals(string label, vector<double> &v)
