@@ -41,7 +41,7 @@ class TrainingData : public Managed
 {
 public:
     TrainingData(const string filename);
-    ~TrainingData();
+    ~TrainingData(void);
     bool isEof(void) { return m_trainingDataFile.eof(); }
     void getTopology(vector<unsigned> &topology);
 
@@ -57,7 +57,7 @@ TrainingData::TrainingData(const string filename)
 {
     m_trainingDataFile.open(filename.c_str());
 }
-TrainingData::~TrainingData(const string filename)
+TrainingData::~TrainingData()
 {
     m_trainingDataFile.close();
 }
@@ -450,8 +450,8 @@ int main(){
         myNet.backprop(targetVals);
 
         // Report how well the training is working, average over recent samples:
-        cout << "Net recent average error: "
-                << myNet.getRecentAverageError() << endl;
+        cout << "Net recent average error: " << myNet.getRecentAverageError() << endl;
     }
     cout << endl << "Done" << endl;
+    return 0
 }
