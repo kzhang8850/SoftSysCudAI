@@ -1,2 +1,2 @@
 # SoftSysCudAI
-Software System Spring 2018 Final Project
+Implementing a basic neural network in parallel CUDA code.
