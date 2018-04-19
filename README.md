@@ -1,2 +1,2 @@
 # SoftSysCudAI
-Implementing a basic neural network in parallel CUDA code.
+An exploration of Backpropogation Neural Networks with CUDA programming parallelization. 
