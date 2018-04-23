@@ -90,7 +90,7 @@ Blah_Container::Blah_Container(int num) {
 // __global__
 // void change_N(int *N)
 // {
-  
+
 // }
 
 __device__
@@ -104,13 +104,16 @@ void print_wrap(Blah_Container &cont){
 }
 
 int main(void) {
-  Blah_Container* um = new Blah_Container(5);
+  // Blah_Container* um = new Blah_Container(5);
   // for (int i=0; i<5; i++) {
   //     printf("%i\n", um->blahs[i].thing);
   // }
-  print_wrap <<<1, 5>>> (*um);
-  cudaDeviceSynchronize();
-  
+  // print_wrap <<<1, 5>>> (*um);
+  // cudaDeviceSynchronize();
+  int sum = 0;
+  int *sum1 = &sum;
+  *sum1 = *sum1 + 1;
+  cout << *sum1 << endl;
 
   // double thing[];
   // thing = {1, 2, 3};
@@ -119,10 +122,10 @@ int main(void) {
   // int *N;
   // cudaMallocManaged(&N, sizeof(int));
   // *N = 100;
-  // printf("N starts as %i\n", *N); 
+  // printf("N starts as %i\n", *N);
   // change_N <<<1, 9>>> (N);
   // cudaDeviceSynchronize();
-  // printf("Now it's %i\n", *N);  
+  // printf("Now it's %i\n", *N);
   // cudaFree(N);
 
   // int N = 20;

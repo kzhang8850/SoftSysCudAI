@@ -101,14 +101,37 @@ void showVectorVals(string label, double *v, int length)
 
 void neuron_global_feed_forward(Neuron &n, int *sum, Layer &prev_layer)
 {
+    for (int n = 0; n < prev_layer.length; ++n) {
+        *sum = *sum + prev_layer.layer[n].get_output() *
+                prev_layer.layer[n].output_weights[n.my_index].weight;
+    }
 
 }
 void neuron_global_sum_DOW(Neuron &n, int *sum, Layer &next_layer)
 {
+    for (int n = 0; n < next_layer.length - 1; ++n) {
+        *sum = *sum + n.output_weights[n].weight * next_layer.layer[n].gradient;
+    }
 
 }
 void neuron_global_update_input_weights(Neuron &n, Layer &prev_layer)
 {
+    for (int n = 0; n < prev_layer.length; ++n) {
+        Neuron &neuron = prev_layer.layer[n];
+        double old_delta_weight = neuron.output_weights[n.my_index].delta_weight;
+
+        double new_delta_weight =
+                // Individual input, magnified by the gradient and train rate:
+                Neuron::lr
+                * neuron.get_output()
+                * n.gradient
+                // Also add momentum = a fraction of the previous delta weight;
+                + Neuron::momentum
+                * old_delta_weight;
+
+        neuron.output_weights[n.my_index].delta_weight = new_delta_weight;
+        neuron.output_weights[n.my_index].weight += new_delta_weight;
+    }
 
 }
 
@@ -116,16 +139,25 @@ void neuron_global_update_input_weights(Neuron &n, Layer &prev_layer)
 
 void net_global_feed_forward(Layer &layer, Layer &prev_layer)
 {
+    for(int i=0; i < layer.length-1;++i){
+        layer.layer[i].feed_forward(prev_layer);
+    }
 
 }
 
 void net_global_update_weights(Layer &layer, Layer &prev_layer)
 {
+    for(int i=0; i < layer.length-1;++i){
+        layer.layer[i].update_input_weights(prev_layer);
+    }
 
 }
 
 void net_global_backprop(Layer &hidden_layer, Layer &next_layer)
 {
+    for (int n = 0; n < hiddenLayer.length; ++n) {
+        hidden_layer.layer[n].calculate_hidden_gradients(next_layer);
+    }
 
 }
 
@@ -137,7 +169,7 @@ class Connection
 {
 public:
     double weight;
-    double deltaWeight;
+    double delta_weight;
 };
 
 class Neuron
@@ -228,13 +260,12 @@ void Neuron::feed_forward(Layer &prev_layer)
     my_index = index;
 }
 
-//TODO add in length of the array
 class Layer
 {
 public:
     Layer(int num_neurons, int num_connections);
-private:
     Neuron* layer;
+    int length;
 };
 
 Layer::Layer(int num_neurons, int num_connections)
@@ -244,6 +275,7 @@ Layer::Layer(int num_neurons, int num_connections)
         layer[i] = Neuron(num_connections, i);
     }
     layer[num_neurons-1].set_output(1.0);
+    length = num_neurons+1;
 }
 
 class Network
