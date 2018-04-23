@@ -1,2 +1,2 @@
 # SoftSysCudAI
-Software System Spring 2018 Final Project
+An exploration of Backpropogation Neural Networks with CUDA programming parallelization. 
