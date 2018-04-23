@@ -18,7 +18,6 @@ using namespace std;
 
 //-----------------------Training Class to load training data-------------------
 
-//TODO: make this work with arrays
 class TrainingData
 {
 public:
@@ -308,36 +307,36 @@ void Network::get_results(double * result_vals, int result_length) const
 
 void Network::back_prop(double * target_vals, int target_length)
 {
-    Layer &outputLayer = layers[NUM_HIDDEN_LAYERS+1];
+    Layer &output_layer = layers[NUM_HIDDEN_LAYERS+1];
     error = 0.0;
-    for(unsigned n = 0; n < OUTPUT_SIZE; ++n){
-        double delta = targetVals[n] - outputLayer.layer[n].get_output();
+    for(unsigned n = 0; n < output_layer.length-1; ++n){
+        double delta = targetVals[n] - output_layer.layer[n].get_output();
         error += delta*delta;
     }
-    error /= OUTPUT_SIZE; //get average error squared
+    error /= (output_layer.length-1); //get average error squared
     error = sqrt(error); //RMS
 
     RAE = (RAE * RAS + error) / (RAS + 1.0);
 
     // Calculate output layer gradients
-    for(unsigned n =0; n < OUTPUT_SIZE; ++n){
-        outputLayer.layer[n].calculate_output_gradient(target_vals[n]);
+    for(unsigned n =0; n < output_layer.length-1; ++n){
+        output_layer.layer[n].calculate_output_gradient(target_vals[n]);
     }
 
     // calculate gradients on hidden layers
     for(unsigned layer_num = NUM_HIDDEN_LAYERS; layer_num > 0; --layer_num){
-        Layer &hiddenlayer = layers[layer_num];
-        Layer &nextlayer = layers[layer_num+1];
+        Layer &hidden_layer = layers[layer_num];
+        Layer &next_layer = layers[layer_num+1];
 
-        net_global_backprop(hiddenlayer, nextlayer);
+        net_global_backprop(hidden_layer, next_layer);
     }
 
     //For all layers from outputs to first hidden layer, update connection weights
     for(unsigned layer_num = NUM_HIDDEN_LAYERS+1;layer_num > 0; --layer_num){
         Layer &layer = layers[layer_num];
-        Layer &prevlayer = layers[layer_num-1];
+        Layer &prev_layer = layers[layer_num-1];
 
-        net_global_update_weights(layer, prevLayer);
+        net_global_update_weights(layer, prev_layer);
     }
 
 }
