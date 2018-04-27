@@ -7,11 +7,13 @@
 
 
 #define NUM_BLOCKS 1
-#define THREADS_PER_BLOCK 32
+#define THREADS_PER_BLOCK 1
 #define INPUT_SIZE 2
 #define HIDDEN_SIZE 4
 #define OUTPUT_SIZE 1
 #define NUM_HIDDEN_LAYERS 1
+#define MOMENTUM 0.5
+#define LR 0.15
 
 using namespace std;
 
@@ -79,6 +81,23 @@ void TrainingData::getTargetOutputs(double *targetOutputVals)
 
 }
 
+//-----Unified Memory Class Constructor; all shared memory classes inherit------
+
+class Managed {
+public:
+    void *operator new(size_t len) {
+        void *ptr;
+        cudaMallocManaged(&ptr, len);
+        cudaDeviceSynchronize();
+        return ptr;
+    }
+
+    void operator delete(void *ptr) {
+        cudaDeviceSynchronize();
+        cudaFree(ptr);
+    }
+};
+
 
 
 //----------------------------------Neural Declarations-------------------------
@@ -89,18 +108,18 @@ class Network;
 
 //--------------------------------Global Declarations---------------------------
 
-void showVectorVals(string label, double *v, int length);
-void neuron_global_feed_forward(Neuron *n, double *sum, Layer &prev_layer);
-void neuron_global_sum_DOW(Neuron *n, double *sum, Layer &next_layer);
-void neuron_global_update_input_weights(Neuron *n, Layer &prev_layer);
-void net_global_feed_forward(Layer &layer, Layer &prev_layer);
-void net_global_update_weights(Layer &layer, Layer &prev_layer);
-void net_global_backprop(Layer &hidden_layer, Layer &next_layer);
+__host__ void showVectorVals(string label, double *v, int length);
+__global__ void neuron_global_feed_forward(Neuron *n, double *sum, Layer &prev_layer);
+__global__ void neuron_global_sum_DOW(Neuron *n, double *sum, Layer &next_layer);
+__global__ void neuron_global_update_input_weights(Neuron *n, Layer &prev_layer);
+__global__ void net_global_feed_forward(Layer &layer, Layer &prev_layer);
+__global__ void net_global_update_weights(Layer &layer, Layer &prev_layer);
+__global__ void net_global_backprop(Layer &hidden_layer, Layer &next_layer);
 
 
 //-------------------------------Net Class Initializations----------------------
 
-class Connection
+class Connection: public Managed
 {
 public:
     double weight;
@@ -108,55 +127,53 @@ public:
 };
 
 
-class Neuron
+class Neuron: public Managed
 {
 public:
-    Neuron();
-    Neuron(int num_neurons, int num_connections);
-    void set_output(double val){output = val;}
-    double get_output(void) const {return output;}
-    void feed_forward(Layer &prev_layer);
-    void calculate_output_gradient(double target_val);
-    void calculate_hidden_gradients(Layer &next_layer);
-    void update_input_weights(Layer &prev_layer);
+    __host__ Neuron();
+    __host__ Neuron(int num_neurons, int num_connections);
+    __host__ void set_output(double val){output = val;}
+    __device__ double get_output(void) {return output;}
+    __device__ void feed_forward(Layer &prev_layer);
+    __device__ void calculate_output_gradient(double target_val);
+    __device__ void calculate_hidden_gradients(Layer &next_layer);
+    __device__ void update_input_weights(Layer &prev_layer);
     double output;
     Connection* output_weights;
     unsigned my_index;
     double gradient;
-    static double lr;
-    static double momentum;
+
 private:
 
-    static double transfer_function(double x);
-    static double transfer_function_derivative(double x);
+    __device__ static double transfer_function(double x);
+    __device__ static double transfer_function_derivative(double x);
     static double init_weight(void) {return rand()/double(RAND_MAX);}
-    double sum_DOW(Layer &next_layer);
+    __device__ double sum_DOW(Layer &next_layer);
 
 
 };
-double Neuron::lr = 0.15;
-double Neuron::momentum = 0.5;
 
 
-class Layer
+
+class Layer: public Managed
 {
 public:
-    Layer();
-    Layer(int num_neurons, int num_connections);
+    __host__ Layer();
+    __host__ Layer(int num_neurons, int num_connections);
     Neuron* layer;
     int length;
 };
 
 
-class Network
+class Network: public Managed
 {
 public:
-    Network();
-    void feed_forward(double *input_vals, int input_vals_length);
-    void back_prop(double * target_vals, int target_length);
+    __host__ Network();
+    __host__ void feed_forward(double *input_vals, int input_vals_length);
+    __host__ void back_prop(double * target_vals, int target_length);
 
-    void get_results(double *result_vals, int result_length);
-    double get_RAE() const { return RAE; }
+    __host__ void get_results(double *result_vals, int result_length);
+    __host__ double get_RAE() const { return RAE; }
 
 private:
     Layer *layers;
@@ -170,6 +187,7 @@ double Network::RAS = 100.0; //Number of training samples to average over
 
 //------------------------------Global Functions--------------------------------
 
+__host__
 void showVectorVals(string label, double *v, int length)
 {
     cout << label << " ";
@@ -179,6 +197,7 @@ void showVectorVals(string label, double *v, int length)
     cout << endl;
 }
 
+__global__
 void neuron_global_feed_forward(Neuron *neuron, double *sum, Layer &prev_layer)
 {
     // Neuron &neuron = *n;
@@ -188,6 +207,8 @@ void neuron_global_feed_forward(Neuron *neuron, double *sum, Layer &prev_layer)
     }
 
 }
+
+__global__
 void neuron_global_sum_DOW(Neuron *neuron, double *sum, Layer &next_layer)
 {
     // Neuron &neuron = *n;
@@ -196,6 +217,7 @@ void neuron_global_sum_DOW(Neuron *neuron, double *sum, Layer &next_layer)
     }
 
 }
+__global__
 void neuron_global_update_input_weights(Neuron *neuron, Layer &prev_layer)
 {
     // Neuron &neuron = *n;
@@ -205,11 +227,11 @@ void neuron_global_update_input_weights(Neuron *neuron, Layer &prev_layer)
 
         double new_delta_weight =
                 // Individual input, magnified by the gradient and train rate:
-                Neuron::lr
+                LR
                 * prev_neuron.get_output()
                 * neuron->gradient
                 // Also add momentum = a fraction of the previous delta weight;
-                + Neuron::momentum
+                + MOMENTUM
                 * old_delta_weight;
 
         prev_neuron.output_weights[neuron->my_index].delta_weight = new_delta_weight;
@@ -221,6 +243,7 @@ void neuron_global_update_input_weights(Neuron *neuron, Layer &prev_layer)
 
 }
 
+__global__
 void net_global_feed_forward(Layer &layer, Layer &prev_layer)
 {
     for(int i=0; i < layer.length-1;++i){
@@ -229,6 +252,7 @@ void net_global_feed_forward(Layer &layer, Layer &prev_layer)
 
 }
 
+__global__
 void net_global_update_weights(Layer &layer, Layer &prev_layer)
 {
     for(int i=0; i < layer.length-1;++i){
@@ -237,6 +261,7 @@ void net_global_update_weights(Layer &layer, Layer &prev_layer)
 
 }
 
+__global__
 void net_global_backprop(Layer &hidden_layer, Layer &next_layer)
 {
     for (int n = 0; n < hidden_layer.length; ++n) {
@@ -248,57 +273,68 @@ void net_global_backprop(Layer &hidden_layer, Layer &next_layer)
 
 //--------------------------Class Functions-------------------------------------
 
+__device__
 void Neuron::update_input_weights(Layer &prev_layer)
 {
 
-    neuron_global_update_input_weights(this, prev_layer);
+    neuron_global_update_input_weights<<<NUM_BLOCKS, THREADS_PER_BLOCK>>> (this, prev_layer);
+    cudaDeviceSynchronize();
 }
 
+__device__
 double Neuron::sum_DOW(Layer &next_layer)
 {
     double sum = 0.0;
 
     // Sum our contributions of the errors at the nodes we feed.
 
-    neuron_global_sum_DOW(this, &sum, next_layer);
+    neuron_global_sum_DOW<<<NUM_BLOCKS, THREADS_PER_BLOCK>>>(this, &sum, next_layer);
+    cudaDeviceSynchronize();
 
     return sum;
 }
 
+__device__
 void Neuron::calculate_hidden_gradients(Layer &next_layer)
 {
     double dow = sum_DOW(next_layer);
     gradient = dow * Neuron::transfer_function_derivative(output);
 }
 
+__device__
 void Neuron::calculate_output_gradient(double target_val)
 {
     double delta = target_val - output;
     gradient = delta * Neuron::transfer_function_derivative(output);
 }
 
+__device__
 double Neuron::transfer_function_derivative(double x)
 {
     return 1.0 - x * x;
 }
+__device__
 double Neuron::transfer_function(double x)
 {
     ///tanh - output range [-1.0, 1.0]
     return tanh(x);
 }
 
+__device__
 void Neuron::feed_forward(Layer &prev_layer)
 {
     double sum = 0.0;
-    neuron_global_feed_forward(this, &sum, prev_layer);
+    neuron_global_feed_forward<<<NUM_BLOCKS, THREADS_PER_BLOCK>>>(this, &sum, prev_layer);
+    cudaDeviceSynchronize();
     output = Neuron::transfer_function(sum);
 }
 
-
+__host__
 Neuron::Neuron()
 {
    my_index = -1;
 }
+__host__
  Neuron::Neuron(int num_connections, int index)
 {
     output_weights = new Connection[num_connections];
@@ -309,11 +345,12 @@ Neuron::Neuron()
     my_index = index;
 }
 
-
+__host__
 Layer::Layer()
 {
     length = 0;
 }
+__host__
 Layer::Layer(int num_neurons, int num_connections)
 {
     layer = new Neuron[num_neurons];
@@ -325,7 +362,7 @@ Layer::Layer(int num_neurons, int num_connections)
 }
 
 
-
+__host__
 void Network::get_results(double *result_vals, int result_length)
 {
     for(unsigned n = 0; n < result_length; ++n){
@@ -334,6 +371,7 @@ void Network::get_results(double *result_vals, int result_length)
     }
 }
 
+__host__
 void Network::back_prop(double * target_vals, int target_length)
 {
     Layer &output_layer = layers[NUM_HIDDEN_LAYERS+1];
@@ -357,7 +395,8 @@ void Network::back_prop(double * target_vals, int target_length)
         Layer &hidden_layer = layers[layer_num];
         Layer &next_layer = layers[layer_num+1];
 
-        net_global_backprop(hidden_layer, next_layer);
+        net_global_backprop<<<NUM_BLOCKS, THREADS_PER_BLOCK>>>(hidden_layer, next_layer);
+        cudaDeviceSynchronize();
     }
 
     //For all layers from outputs to first hidden layer, update connection weights
@@ -365,11 +404,13 @@ void Network::back_prop(double * target_vals, int target_length)
         Layer &layer = layers[layer_num];
         Layer &prev_layer = layers[layer_num-1];
 
-        net_global_update_weights(layer, prev_layer);
+        net_global_update_weights<<<NUM_BLOCKS, THREADS_PER_BLOCK>>>(layer, prev_layer);
+        cudaDeviceSynchronize();
     }
 
 }
 
+__host__
 void Network::feed_forward(double *input_vals, int input_vals_length)
 {
     //assign the input values to the input neurons
@@ -382,11 +423,13 @@ void Network::feed_forward(double *input_vals, int input_vals_length)
     for(unsigned num_layer = 1; num_layer < NUM_HIDDEN_LAYERS+2; ++num_layer){
         Layer &layer = layers[num_layer];
         Layer &prev_layer = layers[num_layer-1];
-        net_global_feed_forward(layer, prev_layer);
+        net_global_feed_forward<<<NUM_BLOCKS, THREADS_PER_BLOCK>>>(layer, prev_layer);
+        cudaDeviceSynchronize();
     }
 }
 
 
+__host__
 Network::Network()
 {
     layers = new Layer[NUM_HIDDEN_LAYERS+2];
