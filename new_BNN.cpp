@@ -81,13 +81,94 @@ void TrainingData::getTargetOutputs(double *targetOutputVals)
 
 
 
-//----------------------------------Neural Net----------------------------------
+//----------------------------------Neural Declarations-------------------------
 class Connection;
 class Neuron;
 class Layer;
 class Network;
 
-//--------------------------------Global Functions------------------------------
+//--------------------------------Global Declarations---------------------------
+
+void showVectorVals(string label, double *v, int length);
+void neuron_global_feed_forward(Neuron *n, double *sum, Layer &prev_layer);
+void neuron_global_sum_DOW(Neuron *n, double *sum, Layer &next_layer);
+void neuron_global_update_input_weights(Neuron *n, Layer &prev_layer);
+void net_global_feed_forward(Layer &layer, Layer &prev_layer);
+void net_global_update_weights(Layer &layer, Layer &prev_layer);
+void net_global_backprop(Layer &hidden_layer, Layer &next_layer);
+
+
+//-------------------------------Net Class Initializations----------------------
+
+class Connection
+{
+public:
+    double weight;
+    double delta_weight;
+};
+
+
+class Neuron
+{
+public:
+    Neuron();
+    Neuron(int num_neurons, int num_connections);
+    void set_output(double val){output = val;}
+    double get_output(void) const {return output;}
+    void feed_forward(Layer &prev_layer);
+    void calculate_output_gradient(double target_val);
+    void calculate_hidden_gradients(Layer &next_layer);
+    void update_input_weights(Layer &prev_layer);
+    double output;
+    Connection* output_weights;
+    unsigned my_index;
+    double gradient;
+    static double lr;
+    static double momentum;
+private:
+
+    static double transfer_function(double x);
+    static double transfer_function_derivative(double x);
+    static double init_weight(void) {return rand()/double(RAND_MAX);}
+    double sum_DOW(Layer &next_layer);
+
+
+};
+double Neuron::lr = 0.15;
+double Neuron::momentum = 0.5;
+
+
+class Layer
+{
+public:
+    Layer();
+    Layer(int num_neurons, int num_connections);
+    Neuron* layer;
+    int length;
+};
+
+
+class Network
+{
+public:
+    Network();
+    void feed_forward(double *input_vals, int input_vals_length);
+    void back_prop(double * target_vals, int target_length);
+
+    void get_results(double *result_vals, int result_length);
+    double get_RAE() const { return RAE; }
+
+private:
+    Layer *layers;
+    double error;
+    double RAE;
+    static double RAS;
+
+};
+double Network::RAS = 100.0; //Number of training samples to average over
+
+
+//------------------------------Global Functions--------------------------------
 
 void showVectorVals(string label, double *v, int length)
 {
@@ -98,43 +179,44 @@ void showVectorVals(string label, double *v, int length)
     cout << endl;
 }
 
-void neuron_global_feed_forward(Neuron &n, int *sum, Layer &prev_layer)
+void neuron_global_feed_forward(Neuron *n, double *sum, Layer &prev_layer)
 {
+    Neuron &neuron = *n;
     for (int n = 0; n < prev_layer.length; ++n) {
         *sum = *sum + prev_layer.layer[n].get_output() *
-                prev_layer.layer[n].output_weights[n.my_index].weight;
+                prev_layer.layer[n].output_weights[neuron.my_index].weight;
     }
 
 }
-void neuron_global_sum_DOW(Neuron &n, int *sum, Layer &next_layer)
+void neuron_global_sum_DOW(Neuron *n, double *sum, Layer &next_layer)
 {
+    Neuron &neuron = *n;
     for (int n = 0; n < next_layer.length - 1; ++n) {
-        *sum = *sum + n.output_weights[n].weight * next_layer.layer[n].gradient;
+        *sum = *sum + neuron.output_weights[n].weight * next_layer.layer[n].gradient;
     }
 
 }
-void neuron_global_update_input_weights(Neuron &n, Layer &prev_layer)
+void neuron_global_update_input_weights(Neuron *n, Layer &prev_layer)
 {
+    Neuron &neuron = *n;
     for (int n = 0; n < prev_layer.length; ++n) {
-        Neuron &neuron = prev_layer.layer[n];
-        double old_delta_weight = neuron.output_weights[n.my_index].delta_weight;
+        Neuron &prev_neuron = prev_layer.layer[n];
+        double old_delta_weight = prev_neuron.output_weights[neuron.my_index].delta_weight;
 
         double new_delta_weight =
                 // Individual input, magnified by the gradient and train rate:
                 Neuron::lr
-                * neuron.get_output()
-                * n.gradient
+                * prev_neuron.get_output()
+                * neuron.gradient
                 // Also add momentum = a fraction of the previous delta weight;
                 + Neuron::momentum
                 * old_delta_weight;
 
-        neuron.output_weights[n.my_index].delta_weight = new_delta_weight;
-        neuron.output_weights[n.my_index].weight += new_delta_weight;
+        prev_neuron.output_weights[neuron.my_index].delta_weight = new_delta_weight;
+        prev_neuron.output_weights[neuron.my_index].weight += new_delta_weight;
     }
 
 }
-
-
 
 void net_global_feed_forward(Layer &layer, Layer &prev_layer)
 {
@@ -154,56 +236,22 @@ void net_global_update_weights(Layer &layer, Layer &prev_layer)
 
 void net_global_backprop(Layer &hidden_layer, Layer &next_layer)
 {
-    for (int n = 0; n < hiddenLayer.length; ++n) {
+    for (int n = 0; n < hidden_layer.length; ++n) {
         hidden_layer.layer[n].calculate_hidden_gradients(next_layer);
     }
 
 }
 
 
-//--------------------------Classes and Functions---------------------------------
-
-
-class Connection
-{
-public:
-    double weight;
-    double delta_weight;
-};
-
-class Neuron
-{
-public:
-    Neuron();
-    void set_output(double val){output = val;}
-    double get_output(void) const {return output;}
-    void feed_forward();
-    void calculate_output_gradient();
-    void calculate_hidden_gradients();
-    void update_input_weights();
-private:
-    static double lr;
-    static double momentum;
-    static double transfer_function(double x);
-    static double transfer_function_derivative(double x);
-    static double init_weight(void) {return rand()/double(RAND_MAX);}
-    double sum_DOW() const;
-    double output;
-    Connection* output_weights;
-    unsigned my_index;
-    double gradient;
-
-};
-double Neuron::lr = 0.15;
-double Neuron::momentum = 0.5;
+//--------------------------Class Functions-------------------------------------
 
 void Neuron::update_input_weights(Layer &prev_layer)
 {
+
     neuron_global_update_input_weights(this, prev_layer);
 }
 
-
-double Neuron::sum_DOW(Layer &next_layer)const
+double Neuron::sum_DOW(Layer &next_layer)
 {
     double sum = 0.0;
 
@@ -220,14 +268,11 @@ void Neuron::calculate_hidden_gradients(Layer &next_layer)
     gradient = dow * Neuron::transfer_function_derivative(output);
 }
 
-
-
 void Neuron::calculate_output_gradient(double target_val)
 {
     double delta = target_val - output;
     gradient = delta * Neuron::transfer_function_derivative(output);
 }
-
 
 double Neuron::transfer_function_derivative(double x)
 {
@@ -239,8 +284,6 @@ double Neuron::transfer_function(double x)
     return tanh(x);
 }
 
-
-
 void Neuron::feed_forward(Layer &prev_layer)
 {
     double sum = 0.0;
@@ -249,24 +292,25 @@ void Neuron::feed_forward(Layer &prev_layer)
 }
 
 
+Neuron::Neuron()
+{
+   my_index = -1;
+}
  Neuron::Neuron(int num_connections, int index)
 {
     output_weights = new Connection[num_connections];
     for (unsigned c = 0; c < num_connections; ++c){
-        output_weights[i] = Connection();
-        output_weights[i].weight = randomWeight();
+        output_weights[c] = Connection();
+        output_weights[c].weight = Neuron::init_weight();
     }
     my_index = index;
 }
 
-class Layer
-{
-public:
-    Layer(int num_neurons, int num_connections);
-    Neuron* layer;
-    int length;
-};
 
+Layer::Layer()
+{
+    length = 0;
+}
 Layer::Layer(int num_neurons, int num_connections)
 {
     layer = new Neuron[num_neurons];
@@ -277,27 +321,9 @@ Layer::Layer(int num_neurons, int num_connections)
     length = num_neurons+1;
 }
 
-class Network
-{
-public:
-    Network();
-    void feed_forward(double *input_vals, int input_vals_length);
-    void back_prop();
-
-    void get_results(double * result_vals, int result_length) const;
-    double get_RAE() const { return RAE; }
-
-private:
-    Layer *layers;
-    double error;
-    double RAE;
-    static double RAS;
-
-};
-double Network::RAS = 100.0; //Number of training samples to average over
 
 
-void Network::get_results(double * result_vals, int result_length) const
+void Network::get_results(double *result_vals, int result_length)
 {
     for(unsigned n = 0; n < result_length; ++n){
         Layer &output_layer = layers[NUM_HIDDEN_LAYERS+1];
@@ -310,7 +336,7 @@ void Network::back_prop(double * target_vals, int target_length)
     Layer &output_layer = layers[NUM_HIDDEN_LAYERS+1];
     error = 0.0;
     for(unsigned n = 0; n < output_layer.length-1; ++n){
-        double delta = targetVals[n] - output_layer.layer[n].get_output();
+        double delta = target_vals[n] - output_layer.layer[n].get_output();
         error += delta*delta;
     }
     error /= (output_layer.length-1); //get average error squared
@@ -345,8 +371,8 @@ void Network::feed_forward(double *input_vals, int input_vals_length)
 {
     //assign the input values to the input neurons
     for(unsigned i = 0; i < input_vals_length; ++i){
-        input_layer = layers[0]
-        input_layer.layer[i].setOutputVal(input_vals[i]);
+        Layer &input_layer = layers[0];
+        input_layer.layer[i].set_output(input_vals[i]);
     }
 
     //forward prop
@@ -377,7 +403,6 @@ int main(){
 
     Network myNet = Network();
 
-    //TODO: change these into arrays
     double input_vals[INPUT_SIZE];
     double target_vals[OUTPUT_SIZE];
     double result_vals[OUTPUT_SIZE];
@@ -392,19 +417,19 @@ int main(){
 
         // Get new input data and feed it forward:
         showVectorVals(": Inputs:", input_vals, INPUT_SIZE);
-        // myNet.feed_forward(input_vals, INPUT_SIZE);
+        myNet.feed_forward(input_vals, INPUT_SIZE);
 
         // Collect the net's actual output results:
-        // myNet.get_results(result_vals, OUTPUT_SIZE);
+        myNet.get_results(result_vals, OUTPUT_SIZE);
         showVectorVals("Outputs:", result_vals, OUTPUT_SIZE);
 
         // Train the net what the outputs should have been:
         trainData.getTargetOutputs(target_vals);
         showVectorVals("Targets:", target_vals, OUTPUT_SIZE);
-        // myNet.back_prop(target_vals, OUTPUT_SIZE);
+        myNet.back_prop(target_vals, OUTPUT_SIZE);
 
         // Report how well the training is working, average over recent samples:
-        // cout << "Net recent average error: " << myNet.get_RAE() << endl;
+        cout << "Net recent average error: " << myNet.get_RAE() << endl;
     }
     cout << endl << "Done!" << endl;
     return 0;
