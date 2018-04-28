@@ -7,8 +7,8 @@ using namespace std;
 int main(){
     // Random training data for XOR
 
-    cout << "topology: 2 4 1" << endl;
-    for (int i = 10000; i >= 0; --i){
+    // cout << "topology: 2 4 1" << endl;
+    for (long i = 10000000; i >= 0; --i){
         int n1 = (int)(2.0*rand()/double(RAND_MAX));
         int n2 = (int)(2.0*rand()/double(RAND_MAX));
         int t = n1^n2;

@@ -15,8 +15,11 @@
 #define NUM_HIDDEN_LAYERS 1
 #define MOMENTUM 0.5
 #define LR 0.15
+#define TRAINING_SIZE 10000000
 
 using namespace std;
+
+
 
 //-----Unified Memory Class Constructor; all shared memory classes inherit------
 
@@ -208,6 +211,12 @@ void net_global_backprop(Layer &hidden_layer, Layer &next_layer)
     for (int n = 0; n < hidden_layer.length; ++n) {
         hidden_layer.layer[n].calculate_hidden_gradients(next_layer);
     }
+
+}
+
+__global__
+void global_training()
+{
 
 }
 
@@ -411,34 +420,61 @@ int main(){
 
     Network myNet = Network();
 
-    double input_vals[INPUT_SIZE];
-    double target_vals[OUTPUT_SIZE];
-    double result_vals[OUTPUT_SIZE];
-    int training_pass = 0;
+    double inputs[INPUT_SIZE];
+    double targets[OUTPUT_SIZE];
+    // double results[OUTPUT_SIZE];
+
+    double input_array[TRAINING_SIZE][INPUT_SIZE];
+    double target_array[TRAINING_SIZE][OUTPUT_SIZE];
+    // double *result_array[TRAINING_SIZE][OUTPUT_SIZE];
+
+    // cudaMalloc(&input_array, sizeof(double)*TRAINING_SIZE);
+    // cudaMalloc(&target_array, sizeof(double)*TRAINING_SIZE);
+    // cudaMalloc(&result_array, sizeof(double)*TRAINING_SIZE);
+    int index = 0;
 
     while (!trainData.isEof()) {
-        ++training_pass;
+        // ++training_pass;
         // cout << endl << "Pass " << training_pass;
 
         // Get new input data and feed it forward:
-        trainData.getNextInputs(input_vals);
+        trainData.getNextInputs(inputs);
+        for(int i=0;i<INPUT_SIZE;i++){
+            input_array[index][i] = inputs[i];
+        }
 
         // Get new input data and feed it forward:
         // showVectorVals(": Inputs:", input_vals, INPUT_SIZE);
-        myNet.feed_forward(input_vals, INPUT_SIZE);
+        // myNet.feed_forward(input_vals, INPUT_SIZE);
 
         // Collect the net's actual output results:
-        myNet.get_results(result_vals, OUTPUT_SIZE);
+        // myNet.get_results(result_vals, OUTPUT_SIZE);
         // showVectorVals("Outputs:", result_vals, OUTPUT_SIZE);
 
         // Train the net what the outputs should have been:
-        trainData.getTargetOutputs(target_vals);
+        trainData.getTargetOutputs(targets);
+        for(int i=0;i<OUTPUT_SIZE;i++){
+            target_array[index][i] = targets[i];
+        }
         // showVectorVals("Targets:", target_vals, OUTPUT_SIZE);
-        myNet.back_prop(target_vals, OUTPUT_SIZE);
+        // myNet.back_prop(target_vals, OUTPUT_SIZE);
 
         // Report how well the training is working, average over recent samples:
         // cout << "Net recent average error: " << myNet.get_RAE() << endl;
     }
+
+    double *input_vals;
+    double *target_vals;
+    double *input_rows;
+    double *target_rows;
+
+    cudaMalloc(&input_vals, sizeof(double)*TRAINING_SIZE)
+    for(int i=0;i< ;++i){
+        cudaMalloc();
+    }
+    cudaMemcpy();
+
+    global_training();
     cout << endl << "Done!" << endl;
     return 0;
 }
