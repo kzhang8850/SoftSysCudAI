@@ -131,24 +131,27 @@ class Neuron: public Managed
 {
 public:
     __host__ Neuron();
+    // __host__ ~Neuron();
     __host__ Neuron(int num_neurons, int num_connections);
     __host__ void set_output(double val){output = val;}
-    __device__ double get_output(void) {return output;}
-    __device__ void feed_forward(Layer &prev_layer);
-    __device__ void calculate_output_gradient(double target_val);
-    __device__ void calculate_hidden_gradients(Layer &next_layer);
-    __device__ void update_input_weights(Layer &prev_layer);
+    __host__ __device__ double get_output(void) {return output;}
+    __host__ __device__ void feed_forward(Layer &prev_layer);
+    __host__ __device__ void calculate_output_gradient(double target_val);
+    __host__ __device__ void calculate_hidden_gradients(Layer &next_layer);
+    __host__ __device__ void update_input_weights(Layer &prev_layer);
     double output;
     Connection* output_weights;
     unsigned my_index;
     double gradient;
+    double* DOW_sum;
+    double* FF_sum;
 
 private:
 
-    __device__ static double transfer_function(double x);
-    __device__ static double transfer_function_derivative(double x);
+    __host__ __device__ static double transfer_function(double x);
+    __host__ __device__ static double transfer_function_derivative(double x);
     static double init_weight(void) {return rand()/double(RAND_MAX);}
-    __device__ double sum_DOW(Layer &next_layer);
+    __host__ __device__ double sum_DOW(Layer &next_layer);
 
 
 };
@@ -169,6 +172,7 @@ class Network: public Managed
 {
 public:
     __host__ Network();
+    // __host__ ~Network();
     __host__ void feed_forward(double *input_vals, int input_vals_length);
     __host__ void back_prop(double * target_vals, int target_length);
 
@@ -272,7 +276,7 @@ void net_global_backprop(Layer &hidden_layer, Layer &next_layer)
 
 
 //--------------------------Class Functions-------------------------------------
-
+__host__
 __device__
 void Neuron::update_input_weights(Layer &prev_layer)
 {
@@ -280,20 +284,19 @@ void Neuron::update_input_weights(Layer &prev_layer)
     neuron_global_update_input_weights<<<NUM_BLOCKS, THREADS_PER_BLOCK>>> (this, prev_layer);
     cudaDeviceSynchronize();
 }
-
+__host__
 __device__
 double Neuron::sum_DOW(Layer &next_layer)
 {
-    double sum = 0.0;
-
+    // double* sum;
+    *DOW_sum = 0.0;
     // Sum our contributions of the errors at the nodes we feed.
 
-    neuron_global_sum_DOW<<<NUM_BLOCKS, THREADS_PER_BLOCK>>>(this, &sum, next_layer);
+    neuron_global_sum_DOW<<<NUM_BLOCKS, THREADS_PER_BLOCK>>>(this, DOW_sum, next_layer);
     cudaDeviceSynchronize();
-
-    return sum;
+    return *DOW_sum;
 }
-
+__host__
 __device__
 void Neuron::calculate_hidden_gradients(Layer &next_layer)
 {
@@ -301,6 +304,7 @@ void Neuron::calculate_hidden_gradients(Layer &next_layer)
     gradient = dow * Neuron::transfer_function_derivative(output);
 }
 
+__host__
 __device__
 void Neuron::calculate_output_gradient(double target_val)
 {
@@ -308,42 +312,58 @@ void Neuron::calculate_output_gradient(double target_val)
     gradient = delta * Neuron::transfer_function_derivative(output);
 }
 
+__host__
 __device__
 double Neuron::transfer_function_derivative(double x)
 {
     return 1.0 - x * x;
 }
+__host__
 __device__
 double Neuron::transfer_function(double x)
 {
     ///tanh - output range [-1.0, 1.0]
     return tanh(x);
 }
-
+__host__
 __device__
 void Neuron::feed_forward(Layer &prev_layer)
 {
-    double sum = 0.0;
-    neuron_global_feed_forward<<<NUM_BLOCKS, THREADS_PER_BLOCK>>>(this, &sum, prev_layer);
+    // double* sum;
+    // malloc(&sum, sizeof(double));
+    // *sum = 0.0;
+    *FF_sum = 0.0;
+
+    neuron_global_feed_forward<<<NUM_BLOCKS, THREADS_PER_BLOCK>>>(this, FF_sum, prev_layer);
     cudaDeviceSynchronize();
-    output = Neuron::transfer_function(sum);
+    output = Neuron::transfer_function(*FF_sum);
 }
 
 __host__
 Neuron::Neuron()
 {
-   my_index = -1;
+   my_index = 999;
 }
 __host__
  Neuron::Neuron(int num_connections, int index)
 {
-    output_weights = new Connection[num_connections];
+    cudaMallocManaged(&output_weights, sizeof(Connection)*num_connections);
     for (unsigned c = 0; c < num_connections; ++c){
         output_weights[c] = Connection();
         output_weights[c].weight = Neuron::init_weight();
     }
+    cudaMallocManaged(&DOW_sum, sizeof(double));
+    cudaMallocManaged(&FF_sum, sizeof(double));
+    *DOW_sum = 0.0;
+    *FF_sum = 0.0;
     my_index = index;
 }
+// __host__
+// Neuron::~Neuron()
+// {
+//     cudaFree(DOW_sum);
+//     cudaFree(FF_sum);
+// }
 
 __host__
 Layer::Layer()
@@ -353,7 +373,7 @@ Layer::Layer()
 __host__
 Layer::Layer(int num_neurons, int num_connections)
 {
-    layer = new Neuron[num_neurons];
+    cudaMallocManaged(&layer, sizeof(Neuron)*num_neurons);
     for(int i=0;i<=num_neurons;i++){
         layer[i] = Neuron(num_connections, i);
     }
@@ -432,20 +452,29 @@ void Network::feed_forward(double *input_vals, int input_vals_length)
 __host__
 Network::Network()
 {
-    layers = new Layer[NUM_HIDDEN_LAYERS+2];
+    cudaMallocManaged(&layers, sizeof(Layer)*(NUM_HIDDEN_LAYERS+2));
     layers[0] = Layer(INPUT_SIZE, HIDDEN_SIZE);
     for (int i = 1; i<NUM_HIDDEN_LAYERS; i++) {
         layers[i] = Layer(HIDDEN_SIZE, HIDDEN_SIZE);
     }
-    layers[NUM_HIDDEN_LAYERS] = Layer(HIDDEN_SIZE, OUTPUT_SIZE);
+    cout << "set all the hiddens" << endl;
+    layers[1] = Layer(HIDDEN_SIZE, OUTPUT_SIZE);
+    cout << "set last hidden" << endl;
     layers[1 + NUM_HIDDEN_LAYERS] = Layer(OUTPUT_SIZE, 0);
+    cout << "this shouldn't print" << endl;
 
 }
+// __host__
+// Network::~Network()
+// {
+//     cudaFree(layers);
+// }
 
 
 
 int main(){
     TrainingData trainData("trainingdata.txt");
+    cout << "Network not made" << endl;
 
     Network myNet = Network();
 
