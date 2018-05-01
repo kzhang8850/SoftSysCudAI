@@ -215,7 +215,7 @@ void net_global_backprop(Layer &hidden_layer, Layer &next_layer)
 }
 
 __global__
-void global_training()
+void global_training(Network *network, )
 {
 
 }
@@ -420,13 +420,9 @@ int main(){
 
     Network myNet = Network();
 
-    double inputs[INPUT_SIZE];
-    double targets[OUTPUT_SIZE];
-    // double results[OUTPUT_SIZE];
-
     double input_array[TRAINING_SIZE][INPUT_SIZE];
     double target_array[TRAINING_SIZE][OUTPUT_SIZE];
-    // double *result_array[TRAINING_SIZE][OUTPUT_SIZE];
+    double result_array[TRAINING_SIZE];
 
     // cudaMalloc(&input_array, sizeof(double)*TRAINING_SIZE);
     // cudaMalloc(&target_array, sizeof(double)*TRAINING_SIZE);
@@ -456,6 +452,7 @@ int main(){
         for(int i=0;i<OUTPUT_SIZE;i++){
             target_array[index][i] = targets[i];
         }
+        index++;
         // showVectorVals("Targets:", target_vals, OUTPUT_SIZE);
         // myNet.back_prop(target_vals, OUTPUT_SIZE);
 
@@ -463,18 +460,19 @@ int main(){
         // cout << "Net recent average error: " << myNet.get_RAE() << endl;
     }
 
-    double *input_vals;
-    double *target_vals;
-    double *input_rows;
-    double *target_rows;
+    size_t pitch;
+    double *inputs;
+    double *targets;
+    double *errors;
+    cudaMallocPitch();
 
-    cudaMalloc(&input_vals, sizeof(double)*TRAINING_SIZE)
-    for(int i=0;i< ;++i){
-        cudaMalloc();
-    }
     cudaMemcpy();
 
-    global_training();
+    global_training(&myNet, input_array, target_array, &result_array);
+
+    for(i=0;i<TRAINING_SIZE;++i){
+        cout << "Error: " << result_array[i] << endl;
+    }
     cout << endl << "Done!" << endl;
     return 0;
 }

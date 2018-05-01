@@ -8,7 +8,7 @@
 
 
 #define NUM_BLOCKS 1
-#define THREADS_PER_BLOCK 4
+#define THREADS_PER_BLOCK 1
 #define INPUT_SIZE 2
 #define HIDDEN_SIZE 4
 #define OUTPUT_SIZE 1
