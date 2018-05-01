@@ -15,7 +15,7 @@
 #define NUM_HIDDEN_LAYERS 1
 #define MOMENTUM 0.5
 #define LR 0.15
-#define TRAINING_SIZE 10000000
+#define TRAINING_SIZE 100001
 
 using namespace std;
 
@@ -73,7 +73,7 @@ public:
     __host__ Neuron();
     // __host__ ~Neuron();
     __host__ Neuron(int num_neurons, int num_connections);
-    __host__ void set_output(double val){output = val;}
+    __host__ __device__ void set_output(double val){output = val;}
     __host__ __device__ double get_output(void) {return output;}
     __host__ __device__ void feed_forward(Layer &prev_layer);
     __host__ __device__ void calculate_output_gradient(double target_val);
@@ -113,39 +113,41 @@ class Network: public Managed
 public:
     __host__ Network();
     // __host__ ~Network();
-    __host__ void feed_forward(double *input_vals, int input_vals_length);
-    __host__ void back_prop(double * target_vals, int target_length);
+    __host__ __device__ void feed_forward(double *input_vals, int input_vals_length);
+    __host__ __device__ void back_prop(double * target_vals, int target_length);
 
-    __host__ void get_results(double *result_vals, int result_length);
-    __host__ double get_RAE() const { return RAE; }
+    __host__ __device__ void get_results(double *result_vals, int result_length);
+    __host__ __device__ double get_RAE() const { return RAE; }
 
 private:
     Layer *layers;
     double error;
     double RAE;
-    static double RAS;
+    double RAS;
 
 };
-double Network::RAS = 100.0; //Number of training samples to average over
 
 
 //------------------------------Global Functions--------------------------------
 
-__host__
-void showVectorVals(string label, double *v, int length)
-{
-    cout << label << " ";
-    for (unsigned i = 0; i < length; ++i) {
-        cout << v[i] << " ";
-    }
-    cout << endl;
-}
+// __host__
+// __device__
+// void showVectorVals(string label, double *v, int length)
+// {
+//     cout << label << " ";
+//     for (unsigned i = 0; i < length; ++i) {
+//         cout << v[i] << " ";
+//     }
+//     cout << endl;
+// }
 
 __global__
 void neuron_global_feed_forward(Neuron *neuron, double *sum, Layer &prev_layer)
 {
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    int stride = blockDim.x * gridDim.x;
     // Neuron &neuron = *n;
-    for (int n = 0; n < prev_layer.length; ++n) {
+    for (int n = index; n < prev_layer.length; n+=stride) {
         *sum = *sum + prev_layer.layer[n].get_output() *
                 prev_layer.layer[n].output_weights[neuron->my_index].weight;
     }
@@ -155,8 +157,10 @@ void neuron_global_feed_forward(Neuron *neuron, double *sum, Layer &prev_layer)
 __global__
 void neuron_global_sum_DOW(Neuron *neuron, double *sum, Layer &next_layer)
 {
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    int stride = blockDim.x * gridDim.x;
     // Neuron &neuron = *n;
-    for (int n = 0; n < next_layer.length - 1; ++n) {
+    for (int n = index; n < next_layer.length - 1; n+=stride) {
         *sum = *sum + neuron->output_weights[n].weight * next_layer.layer[n].gradient;
     }
 
@@ -164,8 +168,10 @@ void neuron_global_sum_DOW(Neuron *neuron, double *sum, Layer &next_layer)
 __global__
 void neuron_global_update_input_weights(Neuron *neuron, Layer &prev_layer)
 {
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    int stride = blockDim.x * gridDim.x;
     // Neuron &neuron = *n;
-    for (int n = 0; n < prev_layer.length; ++n) {
+    for (int n = index; n < prev_layer.length; n+=stride) {
         Neuron &prev_neuron = prev_layer.layer[n];
         double old_delta_weight = prev_neuron.output_weights[neuron->my_index].delta_weight;
 
@@ -190,7 +196,9 @@ void neuron_global_update_input_weights(Neuron *neuron, Layer &prev_layer)
 __global__
 void net_global_feed_forward(Layer &layer, Layer &prev_layer)
 {
-    for(int i=0; i < layer.length-1;++i){
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    int stride = blockDim.x * gridDim.x;
+    for(int i=index; i < layer.length-1;i +=stride){
         layer.layer[i].feed_forward(prev_layer);
     }
 
@@ -199,7 +207,9 @@ void net_global_feed_forward(Layer &layer, Layer &prev_layer)
 __global__
 void net_global_update_weights(Layer &layer, Layer &prev_layer)
 {
-    for(int i=0; i < layer.length-1;++i){
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    int stride = blockDim.x * gridDim.x;
+    for(int i=index; i < layer.length-1;i+=stride){
         layer.layer[i].update_input_weights(prev_layer);
     }
 
@@ -208,15 +218,23 @@ void net_global_update_weights(Layer &layer, Layer &prev_layer)
 __global__
 void net_global_backprop(Layer &hidden_layer, Layer &next_layer)
 {
-    for (int n = 0; n < hidden_layer.length; ++n) {
+    int index = blockIdx.x * blockDim.x + threadIdx.x;
+    int stride = blockDim.x * gridDim.x;
+    for (int n = index; n < hidden_layer.length; n+=stride) {
         hidden_layer.layer[n].calculate_hidden_gradients(next_layer);
     }
 
 }
 
 __global__
-void global_training(Network *network, )
+void global_training(Network *network, double* inputs, double* targets, double* errors, size_t input_pitch, size_t target_pitch, size_t errors_pitch)
 {
+    Network net = *network;
+    for(int i = 0; i < TRAINING_SIZE; ++i){
+        net.feed_forward(inputs+i*input_pitch, INPUT_SIZE);
+        net.get_results(errors+i*errors_pitch, OUTPUT_SIZE);
+        net.back_prop(targets+i*target_pitch, OUTPUT_SIZE);
+    }
 
 }
 
@@ -329,6 +347,7 @@ Layer::Layer(int num_neurons, int num_connections)
 
 
 __host__
+__device__
 void Network::get_results(double *result_vals, int result_length)
 {
     for(unsigned n = 0; n < result_length; ++n){
@@ -338,6 +357,7 @@ void Network::get_results(double *result_vals, int result_length)
 }
 
 __host__
+__device__
 void Network::back_prop(double * target_vals, int target_length)
 {
     Layer &output_layer = layers[NUM_HIDDEN_LAYERS+1];
@@ -377,6 +397,7 @@ void Network::back_prop(double * target_vals, int target_length)
 }
 
 __host__
+__device__
 void Network::feed_forward(double *input_vals, int input_vals_length)
 {
     //assign the input values to the input neurons
@@ -405,6 +426,8 @@ Network::Network()
     }
     layers[1] = Layer(HIDDEN_SIZE, OUTPUT_SIZE);
     layers[1 + NUM_HIDDEN_LAYERS] = Layer(OUTPUT_SIZE, 0);
+    RAS = 100.0; //Number of training samples to average over
+
 
 }
 // __host__
@@ -416,13 +439,27 @@ Network::Network()
 
 
 int main(){
-    TrainingData trainData("trainingdata.txt");
-
+    TrainingData trainData("/home/rooster/Documents/SoftSysCudAI/faster_training_data.txt");
+    cout << " I got the data file" << endl;
     Network myNet = Network();
 
-    double input_array[TRAINING_SIZE][INPUT_SIZE];
-    double target_array[TRAINING_SIZE][OUTPUT_SIZE];
-    double result_array[TRAINING_SIZE];
+    double temp_inputs[INPUT_SIZE];
+    double temp_targets[OUTPUT_SIZE];
+
+    double** input_array = (double **) malloc(TRAINING_SIZE * sizeof(double *));
+    for(int i=0;i<TRAINING_SIZE;++i){
+        input_array[i] = (double *)malloc(INPUT_SIZE * sizeof(double));
+    }
+    double** target_array = (double **) malloc(TRAINING_SIZE * sizeof(double *));
+    for(int i=0;i<TRAINING_SIZE;++i){
+        target_array[i] = (double *)malloc(OUTPUT_SIZE * sizeof(double));
+    }
+    double** result_array = (double **) malloc(TRAINING_SIZE * sizeof(double *));
+    for(int i=0;i<TRAINING_SIZE;++i){
+        result_array[i] = (double *)malloc(OUTPUT_SIZE * sizeof(double));
+    }
+
+    cout << " I made the mallocs" << endl;
 
     // cudaMalloc(&input_array, sizeof(double)*TRAINING_SIZE);
     // cudaMalloc(&target_array, sizeof(double)*TRAINING_SIZE);
@@ -434,9 +471,9 @@ int main(){
         // cout << endl << "Pass " << training_pass;
 
         // Get new input data and feed it forward:
-        trainData.getNextInputs(inputs);
+        trainData.getNextInputs(temp_inputs);
         for(int i=0;i<INPUT_SIZE;i++){
-            input_array[index][i] = inputs[i];
+            input_array[index][i] = temp_inputs[i];
         }
 
         // Get new input data and feed it forward:
@@ -448,31 +485,74 @@ int main(){
         // showVectorVals("Outputs:", result_vals, OUTPUT_SIZE);
 
         // Train the net what the outputs should have been:
-        trainData.getTargetOutputs(targets);
+        trainData.getTargetOutputs(temp_targets);
         for(int i=0;i<OUTPUT_SIZE;i++){
-            target_array[index][i] = targets[i];
+            target_array[index][i] = temp_targets[i];
         }
         index++;
+        // cout<<index<<endl;
         // showVectorVals("Targets:", target_vals, OUTPUT_SIZE);
         // myNet.back_prop(target_vals, OUTPUT_SIZE);
 
         // Report how well the training is working, average over recent samples:
         // cout << "Net recent average error: " << myNet.get_RAE() << endl;
     }
-
-    size_t pitch;
+    cout << " I read the data file" << endl;
+    size_t input_pitch;
+    size_t target_pitch;
+    size_t errors_pitch;
     double *inputs;
     double *targets;
     double *errors;
-    cudaMallocPitch();
+    cudaMallocPitch(&inputs, &input_pitch, sizeof(double)*INPUT_SIZE, TRAINING_SIZE);
+    cudaMallocPitch(&targets, &target_pitch, sizeof(double)*OUTPUT_SIZE, TRAINING_SIZE);
+    cudaMallocPitch(&errors, &errors_pitch, sizeof(double)*OUTPUT_SIZE, TRAINING_SIZE);
+    cout << " I got cuda mallocs" << endl;
+    cudaMemcpy2D(inputs, input_pitch, input_array, INPUT_SIZE*sizeof(double), INPUT_SIZE*sizeof(double), TRAINING_SIZE, cudaMemcpyHostToDevice);
+    cudaMemcpy2D(targets, target_pitch, target_array, OUTPUT_SIZE*sizeof(double), OUTPUT_SIZE*sizeof(double), TRAINING_SIZE, cudaMemcpyHostToDevice);
+    cudaMemcpy2D(errors, errors_pitch, result_array, OUTPUT_SIZE*sizeof(double), OUTPUT_SIZE*sizeof(double), TRAINING_SIZE, cudaMemcpyHostToDevice);
+    cout << " I copied" << endl;
 
-    cudaMemcpy();
+    for(int i = 0; i <TRAINING_SIZE; ++i){
+        for(int j=0; j<INPUT_SIZE; ++j){
+            double * temp = (double *)(((char *)inputs)+(j*input_pitch));
+            cout << "hello" << endl;
+            cout << temp[i] << endl;
 
-    global_training(&myNet, input_array, target_array, &result_array);
-
-    for(i=0;i<TRAINING_SIZE;++i){
-        cout << "Error: " << result_array[i] << endl;
+        }
     }
+
+    // global_training<<<1,1>>>(&myNet, inputs, targets, errors, input_pitch, target_pitch, errors_pitch);
+
+    cout << " I done running" << endl;
+    cudaMemcpy2D(result_array, errors_pitch, errors, OUTPUT_SIZE*sizeof(double), OUTPUT_SIZE*sizeof(double), TRAINING_SIZE, cudaMemcpyDeviceToHost);
+
+    for(int i=0;i<TRAINING_SIZE;++i){
+        cout << "Error: " ;
+        cout << *(result_array+i*errors_pitch) << " ";
+
+        cout << endl;
+
+    }
+
+
+    cudaFree(inputs);
+    cudaFree(targets);
+    cudaFree(errors);
+
+    for(int i=0;i<TRAINING_SIZE;++i){
+        free(input_array[i]);
+    }
+    for(int i=0;i<TRAINING_SIZE;++i){
+        free(target_array[i]);
+    }
+    for(int i=0;i<TRAINING_SIZE;++i){
+        free(result_array[i]);
+    }
+    free(input_array);
+    free(target_array);
+    free(result_array);
+
     cout << endl << "Done!" << endl;
     return 0;
 }
