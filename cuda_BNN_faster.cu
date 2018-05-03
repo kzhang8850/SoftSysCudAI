@@ -16,11 +16,10 @@
 #define MOMENTUM 0.5
 #define LR 0.15
 #define TRAINING_SIZE 100002
-#define BLOCKSIZE_x 16
-#define BLOCKSIZE_y 16
+#define BLOCKSIZE_x 2
+#define BLOCKSIZE_y 2
 
 using namespace std;
-
 
 
 //-----Unified Memory Class Constructor; all shared memory classes inherit------
@@ -45,18 +44,24 @@ int iDivUp(int hostPtr, int b){
     return ((hostPtr % b) != 0) ? (hostPtr / b + 1) : (hostPtr / b); }
 
 
-__global__ void test_kernel_2D(double *devPtr, size_t pitch)
+__global__ void test_kernel_2D(double *devPtr, size_t pitch, double *target, size_t target_pitch)
 {
    int tidx = blockIdx.x*blockDim.x + threadIdx.x;
    int tidy = blockIdx.y*blockDim.y + threadIdx.y;
-
-   if ((tidx < INPUT_SIZE) && (tidy < TRAINING_SIZE))
+   while ((tidy < TRAINING_SIZE))
    {
        double *row_a = (double *)((char*)devPtr + tidy * pitch);
-       printf("%f\n", row_a[tidx]);
-       // cout << row_a[tidx] << endl;
-       // row_a[tidx] = row_a[tidx] * tidx * tidy;
+       printf("Inputs: %f\n", row_a[tidx]);
+       double *row_b = (double *)((char*)target + tidy * target_pitch);
+       if(tidx == 0){
+          printf("Outputs: %f\n", row_b[tidx]);   
+
+       }
+   
+       tidx = (tidx + 1)%INPUT_SIZE;
+       tidy ++;
     }
+   
 }
 
 
@@ -248,12 +253,35 @@ void net_global_backprop(Layer &hidden_layer, Layer &next_layer)
 
 __global__
 void global_training(Network *network, double* inputs, double* targets, double* errors, size_t input_pitch, size_t target_pitch, size_t errors_pitch)
-{
+{   
+    printf("HELLO");
     Network net = *network;
-    for(int i = 0; i < TRAINING_SIZE; ++i){
-        net.feed_forward(inputs+i*input_pitch, INPUT_SIZE);
-        net.get_results(errors+i*errors_pitch, OUTPUT_SIZE);
-        net.back_prop(targets+i*target_pitch, OUTPUT_SIZE);
+    int tidx = blockIdx.x*blockDim.x + threadIdx.x;
+    int tidy = blockIdx.y*blockDim.y + threadIdx.y;
+    while (tidy < TRAINING_SIZE)
+    {
+        printf("IM BEFORE FEEDFORWARD\n");
+       double *row_a = (double *)((char*)inputs + tidy * input_pitch);
+       net.feed_forward(row_a, INPUT_SIZE);
+       printf("IM AFTER FEEDFORWARD\n");
+       // printf("Inputs: %f\n", row_a[tidx]);
+       double *row_b = (double *)((char*)targets + tidy * target_pitch);
+       double *row_c = (double *)((char*)errors + tidy * errors_pitch);
+       printf("IM BEFORE RESULTS\n");
+       net.get_results(row_c, OUTPUT_SIZE);
+       printf("IM AFTER RESULTS\n");
+       printf("IM BEFORE BACKPROP\n");
+       net.back_prop(row_b, OUTPUT_SIZE);
+       printf("IM AFTER BACKPROP\n");
+
+
+       // if(tidx == 0){
+       //    printf("Outputs: %f\n", row_b[tidx]);   
+
+       // }
+   
+       tidx = (tidx + 1)%INPUT_SIZE;
+       tidy ++;
     }
 
 }
@@ -372,6 +400,7 @@ void Network::get_results(double *result_vals, int result_length)
 {
     for(unsigned n = 0; n < result_length; ++n){
         Layer &output_layer = layers[NUM_HIDDEN_LAYERS+1];
+        printf("WUT THIS %f", output_layer.layer[n].get_output());
         result_vals[n] = (output_layer.layer[n].get_output());
     }
 }
@@ -464,7 +493,7 @@ int main(){
     Network myNet = Network();
 
     double temp_inputs[INPUT_SIZE];
-    double temp_targets[OUTPUT_SIZE];
+    double temp_targets[INPUT_SIZE];
 
     double** input_array = (double **) malloc(TRAINING_SIZE * sizeof(double *));
     for(int i=0;i<TRAINING_SIZE;++i){
@@ -472,7 +501,7 @@ int main(){
     }
     double** target_array = (double **) malloc(TRAINING_SIZE * sizeof(double *));
     for(int i=0;i<TRAINING_SIZE;++i){
-        target_array[i] = (double *)malloc(OUTPUT_SIZE * sizeof(double));
+        target_array[i] = (double *)malloc(INPUT_SIZE * sizeof(double));
     }
     double** result_array = (double **) malloc(TRAINING_SIZE * sizeof(double *));
     for(int i=0;i<TRAINING_SIZE;++i){
@@ -512,7 +541,7 @@ int main(){
 
         // Train the net what the outputs should have been:
         trainData.getTargetOutputs(temp_targets);
-        for(int i=0;i<OUTPUT_SIZE;i++){
+        for(int i=0;i<INPUT_SIZE;i++){
             target_array[index][i] = temp_targets[i];
         }
         // cout << "Put targets into target_array" << endl;
@@ -532,60 +561,57 @@ int main(){
     double *targets;
     double *errors;
     cudaMallocPitch(&inputs, &input_pitch, sizeof(double)*INPUT_SIZE, TRAINING_SIZE);
-    cudaMallocPitch(&targets, &target_pitch, sizeof(double)*OUTPUT_SIZE, TRAINING_SIZE);
-    cudaMallocPitch(&errors, &errors_pitch, sizeof(double)*OUTPUT_SIZE, TRAINING_SIZE);
+    cudaMallocPitch(&targets, &target_pitch, sizeof(double)*INPUT_SIZE, TRAINING_SIZE);
+    cudaMallocPitch(&errors, &errors_pitch, sizeof(double)*INPUT_SIZE, TRAINING_SIZE);
     cout << " I got cuda mallocs" << endl;
     cudaMemcpy2D(inputs, input_pitch, input_array, sizeof(double)*INPUT_SIZE, sizeof(double)*INPUT_SIZE, TRAINING_SIZE, cudaMemcpyHostToDevice);
-    cudaMemcpy2D(targets, target_pitch, target_array, sizeof(double)*OUTPUT_SIZE, sizeof(double)*OUTPUT_SIZE, TRAINING_SIZE, cudaMemcpyHostToDevice);
-    cudaMemcpy2D(errors, errors_pitch, result_array, sizeof(double)*OUTPUT_SIZE, sizeof(double)*OUTPUT_SIZE, TRAINING_SIZE, cudaMemcpyHostToDevice);
+    cudaMemcpy2D(targets, target_pitch, target_array, sizeof(double)*INPUT_SIZE, sizeof(double)*INPUT_SIZE, TRAINING_SIZE, cudaMemcpyHostToDevice);
+    cudaMemcpy2D(errors, errors_pitch, result_array, sizeof(double)*INPUT_SIZE, sizeof(double)*INPUT_SIZE, TRAINING_SIZE, cudaMemcpyHostToDevice);
     cout << " I copied" << endl;
 
-    dim3 gridSize(iDivUp(INPUT_SIZE, BLOCKSIZE_x), iDivUp(TRAINING_SIZE, BLOCKSIZE_y));
-    dim3 blockSize(BLOCKSIZE_y, BLOCKSIZE_x);
+    // dim3 gridSize(iDivUp(INPUT_SIZE, BLOCKSIZE_x), iDivUp(TRAINING_SIZE, BLOCKSIZE_y));
+    // dim3 blockSize(BLOCKSIZE_y, BLOCKSIZE_x);
 
-    test_kernel_2D << <gridSize, blockSize >> >(inputs, input_pitch);
+    dim3 gridSize(1,1);
+    dim3 blockSize(1,1);
+
+    // test_kernel_2D << <gridSize, blockSize >> >(inputs, input_pitch, targets, target_pitch);
+    // cudaDeviceSynchronize();
+
+    global_training<<<gridSize, blockSize>>>(&myNet, inputs, targets, errors, input_pitch, target_pitch, errors_pitch);
     cudaDeviceSynchronize();
 
-    // for(int i = 0; i <TRAINING_SIZE; ++i){
-    //     for(int j=0; j<INPUT_SIZE; ++j){
-    //         double *temp = (double *)(((char *)inputs)+(j*input_pitch));
-    //         cout << "hello" << endl;
-    //         cout << temp[i] << endl;
 
-    //     }
-    // }
-
-    // global_training<<<1,1>>>(&myNet, inputs, targets, errors, input_pitch, target_pitch, errors_pitch);
-
-    // cout << " I done running" << endl;
-    // cudaMemcpy2D(result_array, errors_pitch, errors, OUTPUT_SIZE*sizeof(double), OUTPUT_SIZE*sizeof(double), TRAINING_SIZE, cudaMemcpyDeviceToHost);
+    cout << " I done running" << endl;
+    cudaMemcpy2D(result_array, errors_pitch, errors, INPUT_SIZE*sizeof(double), INPUT_SIZE*sizeof(double), TRAINING_SIZE, cudaMemcpyDeviceToHost);
 
     // for(int i=0;i<TRAINING_SIZE;++i){
     //     cout << "Error: " ;
-    //     cout << *(result_array+i*errors_pitch) << " ";
+    //     cout << result_array[i][0] << " " ;
 
     //     cout << endl;
 
+       
     // }
 
 
-    // cudaFree(inputs);
-    // cudaFree(targets);
-    // cudaFree(errors);
+    cudaFree(inputs);
+    cudaFree(targets);
+    cudaFree(errors);
 
-    // for(int i=0;i<TRAINING_SIZE;++i){
-    //     free(input_array[i]);
-    // }
-    // for(int i=0;i<TRAINING_SIZE;++i){
-    //     free(target_array[i]);
-    // }
-    // for(int i=0;i<TRAINING_SIZE;++i){
-    //     free(result_array[i]);
-    // }
-    // free(input_array);
-    // free(target_array);
-    // free(result_array);
+    for(int i=0;i<TRAINING_SIZE;++i){
+        free(input_array[i]);
+    }
+    for(int i=0;i<TRAINING_SIZE;++i){
+        free(target_array[i]);
+    }
+    for(int i=0;i<TRAINING_SIZE;++i){
+        free(result_array[i]);
+    }
+    free(input_array);
+    free(target_array);
+    free(result_array);
 
-    // cout << endl << "Done!" << endl;
+    cout << endl << "Done!" << endl;
     return 0;
 }
