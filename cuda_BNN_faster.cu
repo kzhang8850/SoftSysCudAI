@@ -15,7 +15,9 @@
 #define NUM_HIDDEN_LAYERS 1
 #define MOMENTUM 0.5
 #define LR 0.15
-#define TRAINING_SIZE 100001
+#define TRAINING_SIZE 100002
+#define BLOCKSIZE_x 16
+#define BLOCKSIZE_y 16
 
 using namespace std;
 
@@ -38,6 +40,24 @@ public:
     }
 };
 
+
+int iDivUp(int hostPtr, int b){
+    return ((hostPtr % b) != 0) ? (hostPtr / b + 1) : (hostPtr / b); }
+
+
+__global__ void test_kernel_2D(double *devPtr, size_t pitch)
+{
+   int tidx = blockIdx.x*blockDim.x + threadIdx.x;
+   int tidy = blockIdx.y*blockDim.y + threadIdx.y;
+
+   if ((tidx < INPUT_SIZE) && (tidy < TRAINING_SIZE))
+   {
+       double *row_a = (double *)((char*)devPtr + tidy * pitch);
+       printf("%f\n", row_a[tidx]);
+       // cout << row_a[tidx] << endl;
+       // row_a[tidx] = row_a[tidx] * tidx * tidy;
+    }
+}
 
 
 //----------------------------------Neural Declarations-------------------------
@@ -439,7 +459,7 @@ Network::Network()
 
 
 int main(){
-    TrainingData trainData("/home/rooster/Documents/SoftSysCudAI/faster_training_data.txt");
+    TrainingData trainData("faster_training_data.txt");
     cout << " I got the data file" << endl;
     Network myNet = Network();
 
@@ -465,16 +485,22 @@ int main(){
     // cudaMalloc(&target_array, sizeof(double)*TRAINING_SIZE);
     // cudaMalloc(&result_array, sizeof(double)*TRAINING_SIZE);
     int index = 0;
+    int training_pass = 0;
 
     while (!trainData.isEof()) {
-        // ++training_pass;
-        // cout << endl << "Pass " << training_pass;
+        ++training_pass;
+        // cout <<  "Pass " << training_pass << endl;
 
         // Get new input data and feed it forward:
         trainData.getNextInputs(temp_inputs);
         for(int i=0;i<INPUT_SIZE;i++){
             input_array[index][i] = temp_inputs[i];
+            // cout << temp_inputs[i] << ":  "; 
         }
+
+        // cout << endl;
+
+        // cout << "Put inputs into input_array" << endl;
 
         // Get new input data and feed it forward:
         // showVectorVals(": Inputs:", input_vals, INPUT_SIZE);
@@ -489,6 +515,7 @@ int main(){
         for(int i=0;i<OUTPUT_SIZE;i++){
             target_array[index][i] = temp_targets[i];
         }
+        // cout << "Put targets into target_array" << endl;
         index++;
         // cout<<index<<endl;
         // showVectorVals("Targets:", target_vals, OUTPUT_SIZE);
@@ -508,51 +535,57 @@ int main(){
     cudaMallocPitch(&targets, &target_pitch, sizeof(double)*OUTPUT_SIZE, TRAINING_SIZE);
     cudaMallocPitch(&errors, &errors_pitch, sizeof(double)*OUTPUT_SIZE, TRAINING_SIZE);
     cout << " I got cuda mallocs" << endl;
-    cudaMemcpy2D(inputs, input_pitch, input_array, INPUT_SIZE*sizeof(double), INPUT_SIZE*sizeof(double), TRAINING_SIZE, cudaMemcpyHostToDevice);
-    cudaMemcpy2D(targets, target_pitch, target_array, OUTPUT_SIZE*sizeof(double), OUTPUT_SIZE*sizeof(double), TRAINING_SIZE, cudaMemcpyHostToDevice);
-    cudaMemcpy2D(errors, errors_pitch, result_array, OUTPUT_SIZE*sizeof(double), OUTPUT_SIZE*sizeof(double), TRAINING_SIZE, cudaMemcpyHostToDevice);
+    cudaMemcpy2D(inputs, input_pitch, input_array, sizeof(double)*INPUT_SIZE, sizeof(double)*INPUT_SIZE, TRAINING_SIZE, cudaMemcpyHostToDevice);
+    cudaMemcpy2D(targets, target_pitch, target_array, sizeof(double)*OUTPUT_SIZE, sizeof(double)*OUTPUT_SIZE, TRAINING_SIZE, cudaMemcpyHostToDevice);
+    cudaMemcpy2D(errors, errors_pitch, result_array, sizeof(double)*OUTPUT_SIZE, sizeof(double)*OUTPUT_SIZE, TRAINING_SIZE, cudaMemcpyHostToDevice);
     cout << " I copied" << endl;
 
-    for(int i = 0; i <TRAINING_SIZE; ++i){
-        for(int j=0; j<INPUT_SIZE; ++j){
-            double * temp = (double *)(((char *)inputs)+(j*input_pitch));
-            cout << "hello" << endl;
-            cout << temp[i] << endl;
+    dim3 gridSize(iDivUp(INPUT_SIZE, BLOCKSIZE_x), iDivUp(TRAINING_SIZE, BLOCKSIZE_y));
+    dim3 blockSize(BLOCKSIZE_y, BLOCKSIZE_x);
 
-        }
-    }
+    test_kernel_2D << <gridSize, blockSize >> >(inputs, input_pitch);
+    cudaDeviceSynchronize();
+
+    // for(int i = 0; i <TRAINING_SIZE; ++i){
+    //     for(int j=0; j<INPUT_SIZE; ++j){
+    //         double *temp = (double *)(((char *)inputs)+(j*input_pitch));
+    //         cout << "hello" << endl;
+    //         cout << temp[i] << endl;
+
+    //     }
+    // }
 
     // global_training<<<1,1>>>(&myNet, inputs, targets, errors, input_pitch, target_pitch, errors_pitch);
 
-    cout << " I done running" << endl;
-    cudaMemcpy2D(result_array, errors_pitch, errors, OUTPUT_SIZE*sizeof(double), OUTPUT_SIZE*sizeof(double), TRAINING_SIZE, cudaMemcpyDeviceToHost);
+    // cout << " I done running" << endl;
+    // cudaMemcpy2D(result_array, errors_pitch, errors, OUTPUT_SIZE*sizeof(double), OUTPUT_SIZE*sizeof(double), TRAINING_SIZE, cudaMemcpyDeviceToHost);
 
-    for(int i=0;i<TRAINING_SIZE;++i){
-        cout << "Error: " ;
-        cout << *(result_array+i*errors_pitch) << " ";
+    // for(int i=0;i<TRAINING_SIZE;++i){
+    //     cout << "Error: " ;
+    //     cout << *(result_array+i*errors_pitch) << " ";
 
-        cout << endl;
+    //     cout << endl;
 
-    }
+    // }
 
 
-    cudaFree(inputs);
-    cudaFree(targets);
-    cudaFree(errors);
+    // cudaFree(inputs);
+    // cudaFree(targets);
+    // cudaFree(errors);
 
-    for(int i=0;i<TRAINING_SIZE;++i){
-        free(input_array[i]);
-    }
-    for(int i=0;i<TRAINING_SIZE;++i){
-        free(target_array[i]);
-    }
-    for(int i=0;i<TRAINING_SIZE;++i){
-        free(result_array[i]);
-    }
-    free(input_array);
-    free(target_array);
-    free(result_array);
+    // for(int i=0;i<TRAINING_SIZE;++i){
+    //     free(input_array[i]);
+    // }
+    // for(int i=0;i<TRAINING_SIZE;++i){
+    //     free(target_array[i]);
+    // }
+    // for(int i=0;i<TRAINING_SIZE;++i){
+    //     free(result_array[i]);
+    // }
+    // free(input_array);
+    // free(target_array);
+    // free(result_array);
 
-    cout << endl << "Done!" << endl;
+    // cout << endl << "Done!" << endl;
     return 0;
 }
