@@ -54,14 +54,14 @@ __global__ void test_kernel_2D(double *devPtr, size_t pitch, double *target, siz
        printf("Inputs: %f\n", row_a[tidx]);
        double *row_b = (double *)((char*)target + tidy * target_pitch);
        if(tidx == 0){
-          printf("Outputs: %f\n", row_b[tidx]);   
+          printf("Outputs: %f\n", row_b[tidx]);
 
        }
-   
+
        tidx = (tidx + 1)%INPUT_SIZE;
        tidy ++;
     }
-   
+
 }
 
 
@@ -253,36 +253,35 @@ void net_global_backprop(Layer &hidden_layer, Layer &next_layer)
 
 __global__
 void global_training(Network *network, double* inputs, double* targets, double* errors, size_t input_pitch, size_t target_pitch, size_t errors_pitch)
-{   
+{
     printf("HELLO");
     Network net = *network;
     int tidx = blockIdx.x*blockDim.x + threadIdx.x;
     int tidy = blockIdx.y*blockDim.y + threadIdx.y;
     while (tidy < TRAINING_SIZE)
     {
-        printf("IM BEFORE FEEDFORWARD\n");
        double *row_a = (double *)((char*)inputs + tidy * input_pitch);
-       net.feed_forward(row_a, INPUT_SIZE);
-       printf("IM AFTER FEEDFORWARD\n");
-       // printf("Inputs: %f\n", row_a[tidx]);
-       double *row_b = (double *)((char*)targets + tidy * target_pitch);
-       double *row_c = (double *)((char*)errors + tidy * errors_pitch);
-       printf("IM BEFORE RESULTS\n");
-       net.get_results(row_c, OUTPUT_SIZE);
-       printf("IM AFTER RESULTS\n");
-       printf("IM BEFORE BACKPROP\n");
-       net.back_prop(row_b, OUTPUT_SIZE);
+    //    net.feed_forward(row_a, INPUT_SIZE);
+    //    printf("IM AFTER FEEDFORWARD\n");
+    //    printf("Inputs: %f\n", row_a[tidx]);
+       double *row_b = (double *)((char*)errors + tidy * errors_pitch);
+       double *row_c = (double *)((char*)targets + tidy * target_pitch);
+
+    //    net.get_results(row_b, OUTPUT_SIZE);
+    //    printf("IM AFTER RESULTS\n");
+    //    net.back_prop(row_c, OUTPUT_SIZE);
        printf("IM AFTER BACKPROP\n");
 
 
        // if(tidx == 0){
-       //    printf("Outputs: %f\n", row_b[tidx]);   
+       //    printf("Outputs: %f\n", row_b[tidx]);
 
        // }
-   
+
        tidx = (tidx + 1)%INPUT_SIZE;
        tidy ++;
     }
+    printf("Im out of the function");
 
 }
 
@@ -524,7 +523,7 @@ int main(){
         trainData.getNextInputs(temp_inputs);
         for(int i=0;i<INPUT_SIZE;i++){
             input_array[index][i] = temp_inputs[i];
-            // cout << temp_inputs[i] << ":  "; 
+            // cout << temp_inputs[i] << ":  ";
         }
 
         // cout << endl;
@@ -591,26 +590,26 @@ int main(){
 
     //     cout << endl;
 
-       
+
     // }
 
 
-    cudaFree(inputs);
-    cudaFree(targets);
-    cudaFree(errors);
-
-    for(int i=0;i<TRAINING_SIZE;++i){
-        free(input_array[i]);
-    }
-    for(int i=0;i<TRAINING_SIZE;++i){
-        free(target_array[i]);
-    }
-    for(int i=0;i<TRAINING_SIZE;++i){
-        free(result_array[i]);
-    }
-    free(input_array);
-    free(target_array);
-    free(result_array);
+    // cudaFree(inputs);
+    // cudaFree(targets);
+    // cudaFree(errors);
+    //
+    // for(int i=0;i<TRAINING_SIZE;++i){
+    //     free(input_array[i]);
+    // }
+    // for(int i=0;i<TRAINING_SIZE;++i){
+    //     free(target_array[i]);
+    // }
+    // for(int i=0;i<TRAINING_SIZE;++i){
+    //     free(result_array[i]);
+    // }
+    // free(input_array);
+    // free(target_array);
+    // free(result_array);
 
     cout << endl << "Done!" << endl;
     return 0;
