@@ -8,7 +8,7 @@
 
 
 #define NUM_BLOCKS 1
-#define THREADS_PER_BLOCK 4
+#define THREADS_PER_BLOCK 1
 #define INPUT_SIZE 2
 #define HIDDEN_SIZE 4
 #define OUTPUT_SIZE 1
@@ -472,7 +472,7 @@ int main(){
         myNet.back_prop(target_vals, OUTPUT_SIZE);
 
         // Report how well the training is working, average over recent samples:
-        cout << "Net recent average error: " << myNet.get_RAE() << endl;
+        // cout << "Net recent average error: " << myNet.get_RAE() << endl;
     }
     cout << endl << "Done!" << endl;
     return 0;
