@@ -8,9 +8,9 @@
 
 
 #define NUM_BLOCKS 1
-#define THREADS_PER_BLOCK 1
-#define INPUT_SIZE 2
-#define HIDDEN_SIZE 4
+#define THREADS_PER_BLOCK 8
+#define INPUT_SIZE 37
+#define HIDDEN_SIZE 75
 #define OUTPUT_SIZE 1
 #define NUM_HIDDEN_LAYERS 1
 #define MOMENTUM 0.5
@@ -68,7 +68,6 @@ class Neuron: public Managed
 {
 public:
     __host__ Neuron();
-    // __host__ ~Neuron();
     __host__ Neuron(int num_neurons, int num_connections);
     __host__ void set_output(double val){output = val;}
     __host__ __device__ double get_output(void) {return output;}
@@ -109,7 +108,6 @@ class Network: public Managed
 {
 public:
     __host__ Network();
-    // __host__ ~Network();
     __host__ void feed_forward(double *input_vals, int input_vals_length);
     __host__ void back_prop(double * target_vals, int target_length);
 
@@ -143,7 +141,6 @@ void neuron_global_feed_forward(Neuron *neuron, double *sum, Layer *prev_layer)
 {
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     int stride = blockDim.x * gridDim.x;
-    // Neuron &neuron = *n;
     for (int n = index; n < prev_layer->length; n+=stride) {
         *sum = *sum + prev_layer->layer[n]->get_output() *
                 prev_layer->layer[n]->output_weights[neuron->my_index]->weight;
@@ -156,7 +153,6 @@ void neuron_global_sum_DOW(Neuron *neuron, double *sum, Layer *next_layer)
 {
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     int stride = blockDim.x * gridDim.x;
-    // Neuron &neuron = *n;
     for (int n = index; n < next_layer->length - 1; n+=stride) {
         *sum = *sum + neuron->output_weights[n]->weight * next_layer->layer[n]->gradient;
     }
@@ -167,7 +163,6 @@ void neuron_global_update_input_weights(Neuron *neuron, Layer *prev_layer)
 {
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     int stride = blockDim.x * gridDim.x;
-    // Neuron &neuron = *n;
     for (int n = index; n < prev_layer->length; n+=stride) {
         Neuron* prev_neuron = prev_layer->layer[n];
         double old_delta_weight = prev_neuron->output_weights[neuron->my_index]->delta_weight;
@@ -182,10 +177,8 @@ void neuron_global_update_input_weights(Neuron *neuron, Layer *prev_layer)
                 * old_delta_weight;
 
         prev_neuron->output_weights[neuron->my_index]->delta_weight = new_delta_weight;
-        // cout << "DELTA WEIGHT " << new_delta_weight << endl;
         prev_neuron->output_weights[neuron->my_index]->weight += new_delta_weight;
 
-        // cout << "WEIGHT: " << prev_neuron.output_weights[neuron.my_index].weight << endl;
     }
 
 }
@@ -280,9 +273,6 @@ __host__
 __device__
 void Neuron::feed_forward(Layer *prev_layer)
 {
-    // double* sum;
-    // malloc(&sum, sizeof(double));
-    // *sum = 0.0;
     *FF_sum = 0.0;
 
     neuron_global_feed_forward<<<1, 1>>>(this, FF_sum, prev_layer);
@@ -313,12 +303,7 @@ __host__
     *FF_sum = 0.0;
     my_index = index;
 }
-// __host__
-// Neuron::~Neuron()
-// {
-//     cudaFree(DOW_sum);
-//     cudaFree(FF_sum);
-// }
+
 
 __host__
 Layer::Layer()
@@ -433,16 +418,11 @@ Network::Network()
     *layer_3 = Layer(OUTPUT_SIZE, 0);
     layers[1 + NUM_HIDDEN_LAYERS] = layer_3;
 }
-// __host__
-// Network::~Network()
-// {
-//     cudaFree(layers);
-// }
 
 
 
 int main(){
-    TrainingData trainData("faster_training_data.txt");
+    TrainingData trainData("house_training_dataset.txt");
 
     Network myNet = Network();
 
@@ -459,12 +439,12 @@ int main(){
         trainData.getNextInputs(input_vals);
 
         // Get new input data and feed it forward:
-        // showVectorVals(": Inputs:", input_vals, INPUT_SIZE);
+        // showVectorVals("Inputs:", input_vals, INPUT_SIZE);
         myNet.feed_forward(input_vals, INPUT_SIZE);
 
         // Collect the net's actual output results:
         myNet.get_results(result_vals, OUTPUT_SIZE);
-        // showVectorVals("Outputs:", result_vals, OUTPUT_SIZE);
+        showVectorVals("Outputs:", result_vals, OUTPUT_SIZE);
 
         // Train the net what the outputs should have been:
         trainData.getTargetOutputs(target_vals);
@@ -472,7 +452,7 @@ int main(){
         myNet.back_prop(target_vals, OUTPUT_SIZE);
 
         // Report how well the training is working, average over recent samples:
-        // cout << "Net recent average error: " << myNet.get_RAE() << endl;
+        cout << "Net recent average error: " << myNet.get_RAE() << endl;
     }
     cout << endl << "Done!" << endl;
     return 0;
