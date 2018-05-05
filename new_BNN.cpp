@@ -4,6 +4,8 @@
 #include <cmath>
 #include <fstream>
 #include <sstream>
+#include "training_reader.h"
+
 
 
 #define NUM_BLOCKS 1
@@ -14,82 +16,6 @@
 #define NUM_HIDDEN_LAYERS 1
 
 using namespace std;
-
-
-//-----------------------Training Class to load training data-------------------
-
-class TrainingData
-{
-public:
-    TrainingData(const string filename);
-    ~TrainingData(void);
-    bool isEof(void) { return m_trainingDataFile.eof(); }
-
-    // Returns the number of input values read from the file:
-    void getNextInputs(double *inputVals);
-    void getTargetOutputs(double *targetOutputVals);
-
-private:
-    ifstream m_trainingDataFile;
-};
-
-TrainingData::TrainingData(const string filename)
-{
-    m_trainingDataFile.open(filename.c_str());
-}
-TrainingData::~TrainingData()
-{
-    m_trainingDataFile.close();
-}
-
-void TrainingData::getNextInputs(double *inputVals)
-{
-    // Extracts one line from the file, ending
-    //  at the first \n or EOF
-    int index = 0;
-    string line;
-    getline(m_trainingDataFile, line);
-    stringstream ss(line);
-
-    string label;
-    ss>> label;
-    // If the first word of the line is 'in:', adds
-    //  to inputVals
-    if (label.compare("in:") == 0) {
-        double oneValue;
-        // Adds vals to inputVals until the end
-        //  of the line is reached
-        while (ss >> oneValue) {
-            inputVals[index] = oneValue;
-            ++index;
-        }
-    }
-}
-
-void TrainingData::getTargetOutputs(double *targetOutputVals)
-{
-    // Extracts one line from the file, ending
-    //  at the first \n or EOF
-    int index = 0;
-    string line;
-    getline(m_trainingDataFile, line);
-    stringstream ss(line);
-
-    // If the first word of the line is 'out:', adds
-    //  to targetOutputVals
-    string label;
-    ss>> label;
-    if (label.compare("out:") == 0) {
-        double oneValue;
-        // Adds vals until the end of the line is reached
-        while (ss >> oneValue) {
-            targetOutputVals[index] = oneValue;
-            ++index;
-        }
-    }
-
-}
-
 
 
 //----------------------------------Neural Declarations-------------------------
@@ -177,7 +103,7 @@ public:
 class Network
 {
     // The network represents the entirity of the
-    //  algorithm, containing all the layers and 
+    //  algorithm, containing all the layers and
     //  the functions needed to generally control
     //  the forward and backward operations. This
     //  is the interface to the algorithm.
@@ -217,7 +143,7 @@ void neuron_global_feed_forward(Neuron *neuron, double *sum, Layer &prev_layer)
     // Stand-in for a CUDA global function. Given a neuron, sums up the
     //  inputs from every neuron in the previous layer, as altered
     //  by the weights of the connection to that neuron. This will be used
-    //  as input to the next layer of neurons.    
+    //  as input to the next layer of neurons.
     for (int n = 0; n < prev_layer.length; ++n) {
         *sum = *sum + prev_layer.layer[n].get_output() *
                 prev_layer.layer[n].output_weights[neuron->my_index].weight;
@@ -227,7 +153,7 @@ void neuron_global_feed_forward(Neuron *neuron, double *sum, Layer &prev_layer)
 void neuron_global_sum_DOW(Neuron *neuron, double *sum, Layer &next_layer)
 {
     // Stand-in for a CUDA global function. This is the key to backpropagation.
-    //  Given a neuron, calculates 
+    //  Given a neuron, calculates
     for (int n = 0; n < next_layer.length - 1; ++n) {
         *sum = *sum + neuron->output_weights[n].weight * next_layer.layer[n].gradient;
     }
@@ -235,7 +161,6 @@ void neuron_global_sum_DOW(Neuron *neuron, double *sum, Layer &next_layer)
 }
 void neuron_global_update_input_weights(Neuron *neuron, Layer &prev_layer)
 {
-    // Neuron &neuron = *n;
     for (int n = 0; n < prev_layer.length; ++n) {
         Neuron &prev_neuron = prev_layer.layer[n];
         double old_delta_weight = prev_neuron.output_weights[neuron->my_index].delta_weight;
@@ -250,10 +175,8 @@ void neuron_global_update_input_weights(Neuron *neuron, Layer &prev_layer)
                 * old_delta_weight;
 
         prev_neuron.output_weights[neuron->my_index].delta_weight = new_delta_weight;
-        // cout << "DELTA WEIGHT " << new_delta_weight << endl;
         prev_neuron.output_weights[neuron->my_index].weight += new_delta_weight;
 
-        // cout << "WEIGHT: " << prev_neuron.output_weights[neuron.my_index].weight << endl;
     }
 
 }
@@ -439,7 +362,7 @@ Network::Network()
 
 
 int main(){
-    TrainingData trainData("trainingdata.txt");
+    TrainingData trainData("faster_training_data.txt");
 
     Network myNet = Network();
 
@@ -454,18 +377,19 @@ int main(){
 
         // Get new input data and feed it forward:
         trainData.getNextInputs(input_vals);
+        cout << input_vals[0] << input_vals[1] << endl;
 
         // Get new input data and feed it forward:
-        showVectorVals(": Inputs:", input_vals, INPUT_SIZE);
+        // showVectorVals(": Inputs:", input_vals, INPUT_SIZE);
         myNet.feed_forward(input_vals, INPUT_SIZE);
 
         // Collect the net's actual output results:
         myNet.get_results(result_vals, OUTPUT_SIZE);
-        showVectorVals("Outputs:", result_vals, OUTPUT_SIZE);
+        // showVectorVals("Outputs:", result_vals, OUTPUT_SIZE);
 
         // Train the net what the outputs should have been:
         trainData.getTargetOutputs(target_vals);
-        showVectorVals("Targets:", target_vals, OUTPUT_SIZE);
+        // showVectorVals("Targets:", target_vals, OUTPUT_SIZE);
         myNet.back_prop(target_vals, OUTPUT_SIZE);
 
         // Report how well the training is working, average over recent samples:

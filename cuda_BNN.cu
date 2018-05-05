@@ -8,9 +8,9 @@
 
 
 #define NUM_BLOCKS 1
-#define THREADS_PER_BLOCK 8
-#define INPUT_SIZE 37
-#define HIDDEN_SIZE 75
+#define THREADS_PER_BLOCK 4
+#define INPUT_SIZE 2
+#define HIDDEN_SIZE 4
 #define OUTPUT_SIZE 1
 #define NUM_HIDDEN_LAYERS 1
 #define MOMENTUM 0.5
@@ -412,7 +412,7 @@ Network::Network()
     Layer * layer_2;
     cudaMallocManaged(&layer_2, sizeof(Layer));
     *layer_2 = Layer(HIDDEN_SIZE, OUTPUT_SIZE);
-    layers[1] = layer_2;
+    layers[NUM_HIDDEN_LAYERS] = layer_2;
     Layer * layer_3;
     cudaMallocManaged(&layer_3, sizeof(Layer));
     *layer_3 = Layer(OUTPUT_SIZE, 0);
@@ -422,7 +422,7 @@ Network::Network()
 
 
 int main(){
-    TrainingData trainData("house_training_dataset.txt");
+    TrainingData trainData("faster_training_data.txt");
 
     Network myNet = Network();
 
@@ -439,7 +439,7 @@ int main(){
         trainData.getNextInputs(input_vals);
 
         // Get new input data and feed it forward:
-        // showVectorVals("Inputs:", input_vals, INPUT_SIZE);
+        showVectorVals("Inputs:", input_vals, INPUT_SIZE);
         myNet.feed_forward(input_vals, INPUT_SIZE);
 
         // Collect the net's actual output results:
@@ -448,7 +448,7 @@ int main(){
 
         // Train the net what the outputs should have been:
         trainData.getTargetOutputs(target_vals);
-        // showVectorVals("Targets:", target_vals, OUTPUT_SIZE);
+        showVectorVals("Targets:", target_vals, OUTPUT_SIZE);
         myNet.back_prop(target_vals, OUTPUT_SIZE);
 
         // Report how well the training is working, average over recent samples:
