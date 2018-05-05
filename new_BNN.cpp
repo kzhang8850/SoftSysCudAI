@@ -44,6 +44,8 @@ TrainingData::~TrainingData()
 
 void TrainingData::getNextInputs(double *inputVals)
 {
+    // Extracts one line from the file, ending
+    //  at the first \n or EOF
     int index = 0;
     string line;
     getline(m_trainingDataFile, line);
@@ -51,8 +53,12 @@ void TrainingData::getNextInputs(double *inputVals)
 
     string label;
     ss>> label;
+    // If the first word of the line is 'in:', adds
+    //  to inputVals
     if (label.compare("in:") == 0) {
         double oneValue;
+        // Adds vals to inputVals until the end
+        //  of the line is reached
         while (ss >> oneValue) {
             inputVals[index] = oneValue;
             ++index;
@@ -62,15 +68,20 @@ void TrainingData::getNextInputs(double *inputVals)
 
 void TrainingData::getTargetOutputs(double *targetOutputVals)
 {
+    // Extracts one line from the file, ending
+    //  at the first \n or EOF
     int index = 0;
     string line;
     getline(m_trainingDataFile, line);
     stringstream ss(line);
 
+    // If the first word of the line is 'out:', adds
+    //  to targetOutputVals
     string label;
     ss>> label;
     if (label.compare("out:") == 0) {
         double oneValue;
+        // Adds vals until the end of the line is reached
         while (ss >> oneValue) {
             targetOutputVals[index] = oneValue;
             ++index;
@@ -102,14 +113,25 @@ void net_global_backprop(Layer &hidden_layer, Layer &next_layer);
 
 class Connection
 {
+    // This class represents the connection
+    //  between two neurons on different layers.
+    //  Each neuron has one connection for every
+    //  neuron on the previous layer as well as
+    //  every neuron on the next layer.
 public:
-    double weight;
-    double delta_weight;
+    double weight; // Used to determine how much emphasis this connection should have
+    double delta_weight; // Used in back propagation to alter the weight for the next iteration
 };
 
 
 class Neuron
 {
+    // This class represents the nodes of the BNN.
+    //  Each neuron gathers and sums the inputs of
+    //  all the neurons previously, altered by the
+    //  connection weights, and then pushes forward
+    //  the newly calculated result to every neuron
+    //  in the next layer.
 public:
     Neuron();
     Neuron(int num_neurons, int num_connections);
@@ -129,7 +151,7 @@ private:
 
     static double transfer_function(double x);
     static double transfer_function_derivative(double x);
-    static double init_weight(void) {return rand()/double(RAND_MAX);}
+    static double init_weight(void) {return rand()/double(RAND_MAX);} // initial weights are random, and will migrate over time
     double sum_DOW(Layer &next_layer);
 
 
@@ -140,6 +162,10 @@ double Neuron::momentum = 0.5;
 
 class Layer
 {
+    // This class represents a set of neurons. Most
+    //  of these layers are 'hidden', with only the
+    //  input and output layers being exposed.
+    //  They operate largely as arrays for neurons.
 public:
     Layer();
     Layer(int num_neurons, int num_connections);
@@ -150,6 +176,11 @@ public:
 
 class Network
 {
+    // The network represents the entirity of the
+    //  algorithm, containing all the layers and 
+    //  the functions needed to generally control
+    //  the forward and backward operations. This
+    //  is the interface to the algorithm.
 public:
     Network();
     void feed_forward(double *input_vals, int input_vals_length);
@@ -172,6 +203,8 @@ double Network::RAS = 100.0; //Number of training samples to average over
 
 void showVectorVals(string label, double *v, int length)
 {
+    // Prints out the label and the values of the given vector.
+    //  This is actually done on host.
     cout << label << " ";
     for (unsigned i = 0; i < length; ++i) {
         cout << v[i] << " ";
@@ -181,7 +214,10 @@ void showVectorVals(string label, double *v, int length)
 
 void neuron_global_feed_forward(Neuron *neuron, double *sum, Layer &prev_layer)
 {
-    // Neuron &neuron = *n;
+    // Stand-in for a CUDA global function. Given a neuron, sums up the
+    //  inputs from every neuron in the previous layer, as altered
+    //  by the weights of the connection to that neuron. This will be used
+    //  as input to the next layer of neurons.    
     for (int n = 0; n < prev_layer.length; ++n) {
         *sum = *sum + prev_layer.layer[n].get_output() *
                 prev_layer.layer[n].output_weights[neuron->my_index].weight;
@@ -190,7 +226,8 @@ void neuron_global_feed_forward(Neuron *neuron, double *sum, Layer &prev_layer)
 }
 void neuron_global_sum_DOW(Neuron *neuron, double *sum, Layer &next_layer)
 {
-    // Neuron &neuron = *n;
+    // Stand-in for a CUDA global function. This is the key to backpropagation.
+    //  Given a neuron, calculates 
     for (int n = 0; n < next_layer.length - 1; ++n) {
         *sum = *sum + neuron->output_weights[n].weight * next_layer.layer[n].gradient;
     }
