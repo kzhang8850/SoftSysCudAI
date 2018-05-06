@@ -9,7 +9,9 @@ This project is an exploration into machine learning and CUDA programming. We in
 We wanted to learn about the theory behind machine learning--specifically neural networks--as well as its physical implementation in code. We also wanted to understand the basics behind how parallelized computing works, which includes learning the popular graphics programming API CUDA and seeing how it boosts performance, if only on a small scale. In addition, we also wanted to expand on our current knowledge of C and jump into the more practical world of C++.
 
 ### Our Adventure, and our Results
-Our project diverges into two paths. The first is a working non-parallel neural network in C++. It is structured by classes--specifically, a Network, a number of Layers, and several Neurons per layer, each of which shares a Connection struct with all the others in the neighboring layer (see figure below). This network reports a  final accuracy of roughly *NUMBER HERE* on an XOR data set.
+Our project diverges into two paths. The first is a working non-parallel neural network in C++. It is structured by classes--specifically, a Network, a number of Layers, and several Neurons per layer, each of which shares a Connection struct with all the others in the neighboring layer (see Fig. 1 below). This network reports a  final accuracy of roughly *NUMBER HERE* on an XOR data set.
+
+##### Figure 1: Code Architecture
 
 ![Code Architecture Animation](https://media.giphy.com/media/xlCHGS3xU5g0SwPbdf/giphy.gif)
 
