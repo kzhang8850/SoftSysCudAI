@@ -153,7 +153,7 @@ void neuron_global_feed_forward(Neuron *neuron, double *sum, Layer &prev_layer)
 void neuron_global_sum_DOW(Neuron *neuron, double *sum, Layer &next_layer)
 {
     // Stand-in for a CUDA global function. This is the key to backpropagation.
-    //  Given a neuron, calculates
+    //  Given a neuron, calculates the derivative of weights
     for (int n = 0; n < next_layer.length - 1; ++n) {
         *sum = *sum + neuron->output_weights[n].weight * next_layer.layer[n].gradient;
     }
@@ -161,6 +161,7 @@ void neuron_global_sum_DOW(Neuron *neuron, double *sum, Layer &next_layer)
 }
 void neuron_global_update_input_weights(Neuron *neuron, Layer &prev_layer)
 {
+    // Stand-in for a CUDA global function. Updates input weights based on the gradient descent
     for (int n = 0; n < prev_layer.length; ++n) {
         Neuron &prev_neuron = prev_layer.layer[n];
         double old_delta_weight = prev_neuron.output_weights[neuron->my_index].delta_weight;
@@ -183,6 +184,8 @@ void neuron_global_update_input_weights(Neuron *neuron, Layer &prev_layer)
 
 void net_global_feed_forward(Layer &layer, Layer &prev_layer)
 {
+    // Stand-in for a CUDA global function which would run through
+    //  all the layers sequentially and feed the data forward.
     for(int i=0; i < layer.length-1;++i){
         layer.layer[i].feed_forward(prev_layer);
     }
@@ -191,6 +194,8 @@ void net_global_feed_forward(Layer &layer, Layer &prev_layer)
 
 void net_global_update_weights(Layer &layer, Layer &prev_layer)
 {
+    // Stand-in for a CUDA global function which would run through
+    //  all the layers sequentially and update the weights.
     for(int i=0; i < layer.length-1;++i){
         layer.layer[i].update_input_weights(prev_layer);
     }
@@ -199,6 +204,8 @@ void net_global_update_weights(Layer &layer, Layer &prev_layer)
 
 void net_global_backprop(Layer &hidden_layer, Layer &next_layer)
 {
+    // Stand-in for a CUDA global function which would run through
+    //  all the layers sequentially and calculate the gradient.
     for (int n = 0; n < hidden_layer.length; ++n) {
         hidden_layer.layer[n].calculate_hidden_gradients(next_layer);
     }
@@ -208,9 +215,10 @@ void net_global_backprop(Layer &hidden_layer, Layer &next_layer)
 
 //--------------------------Class Functions-------------------------------------
 
+// Unless specified otherwise, wrappers for the supposed global functions
+
 void Neuron::update_input_weights(Layer &prev_layer)
 {
-
     neuron_global_update_input_weights(this, prev_layer);
 }
 
@@ -227,28 +235,34 @@ double Neuron::sum_DOW(Layer &next_layer)
 
 void Neuron::calculate_hidden_gradients(Layer &next_layer)
 {
+    // Calculates the hidden gradient based on the derivative of weights
+    //  and the transfer function derivative
     double dow = sum_DOW(next_layer);
     gradient = dow * Neuron::transfer_function_derivative(output);
 }
 
 void Neuron::calculate_output_gradient(double target_val)
 {
+    // Calculates the output gradient based on error and
+    //  transfer function derivative.
     double delta = target_val - output;
     gradient = delta * Neuron::transfer_function_derivative(output);
 }
 
 double Neuron::transfer_function_derivative(double x)
 {
+    // Derivative of tahn
     return 1.0 - x * x;
 }
 double Neuron::transfer_function(double x)
 {
-    ///tanh - output range [-1.0, 1.0]
+    // Transfer function used to alter the feedforward sum
     return tanh(x);
 }
 
 void Neuron::feed_forward(Layer &prev_layer)
 {
+    // wrapper
     double sum = 0.0;
     neuron_global_feed_forward(this, &sum, prev_layer);
     output = Neuron::transfer_function(sum);
@@ -261,6 +275,8 @@ Neuron::Neuron()
 }
  Neuron::Neuron(int num_connections, int index)
 {
+    // Initializes the neuron with connections ready
+    //  for all neurons in the next layer.
     output_weights = new Connection[num_connections];
     for (unsigned c = 0; c < num_connections; ++c){
         output_weights[c] = Connection();
@@ -276,6 +292,8 @@ Layer::Layer()
 }
 Layer::Layer(int num_neurons, int num_connections)
 {
+    // Creates neurons and initializes them with the number
+    //  of connections they will need
     layer = new Neuron[num_neurons];
     for(int i=0;i<=num_neurons;i++){
         layer[i] = Neuron(num_connections, i);
@@ -288,6 +306,7 @@ Layer::Layer(int num_neurons, int num_connections)
 
 void Network::get_results(double *result_vals, int result_length)
 {
+    // Gets the final output of the output layer
     for(unsigned n = 0; n < result_length; ++n){
         Layer &output_layer = layers[NUM_HIDDEN_LAYERS+1];
         result_vals[n] = (output_layer.layer[n].get_output());
@@ -296,6 +315,7 @@ void Network::get_results(double *result_vals, int result_length)
 
 void Network::back_prop(double * target_vals, int target_length)
 {
+    // Adjusts the weights to minimize output error
     Layer &output_layer = layers[NUM_HIDDEN_LAYERS+1];
     error = 0.0;
     for(unsigned n = 0; n < output_layer.length-1; ++n){
@@ -332,6 +352,8 @@ void Network::back_prop(double * target_vals, int target_length)
 
 void Network::feed_forward(double *input_vals, int input_vals_length)
 {
+    // Feeds the input values into the network to get a prediction
+
     //assign the input values to the input neurons
     for(unsigned i = 0; i < input_vals_length; ++i){
         Layer &input_layer = layers[0];
@@ -349,6 +371,8 @@ void Network::feed_forward(double *input_vals, int input_vals_length)
 
 Network::Network()
 {
+    // Network initializer, creates each layer with the number
+    //  of neurons it needs.
     layers = new Layer[NUM_HIDDEN_LAYERS+2];
     layers[0] = Layer(INPUT_SIZE, HIDDEN_SIZE);
     for (int i = 1; i<NUM_HIDDEN_LAYERS; i++) {
@@ -362,9 +386,10 @@ Network::Network()
 
 
 int main(){
+    // Load the training data
     TrainingData trainData("faster_training_data.txt");
 
-    Network myNet = Network();
+    Network myNet = Network(); // create network, which initializes all internal structures
 
     double input_vals[INPUT_SIZE];
     double target_vals[OUTPUT_SIZE];
@@ -372,6 +397,7 @@ int main(){
     int training_pass = 0;
 
     while (!trainData.isEof()) {
+        // For every line in trainingData, feedforward and then backpropagate
         ++training_pass;
         cout << endl << "Pass " << training_pass;
 
