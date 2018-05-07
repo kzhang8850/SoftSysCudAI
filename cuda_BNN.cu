@@ -21,6 +21,9 @@ using namespace std;
 //-----Unified Memory Class Constructor; all shared memory classes inherit------
 
 class Managed {
+    // Overwrites constructors so that all classes that inherit from
+    //  Managed are created in unified memory, so can be used by both
+    //  CPU and GPU
 public:
     void *operator new(size_t len) {
         void *ptr;
@@ -58,6 +61,9 @@ __global__ void net_global_backprop(Layer *hidden_layer, Layer *next_layer);
 
 class Connection: public Managed
 {
+    // weighted connection between two neurons on different layers.
+    //  delta_weight (how much it should change) is calculated during
+    //  backpropagation, based on the output error.
 public:
     double weight;
     double delta_weight;
@@ -66,6 +72,9 @@ public:
 
 class Neuron: public Managed
 {
+    // Perceptron node that outputs the sum of all inputs times the weight
+    //  of the connection between it and the neuron before, then passes
+    //  this value through the connections to all neurons in the next layer.
 public:
     __host__ Neuron();
     __host__ Neuron(int num_neurons, int num_connections);
@@ -86,7 +95,7 @@ private:
 
     __host__ __device__ static double transfer_function(double x);
     __host__ __device__ static double transfer_function_derivative(double x);
-    static double init_weight(void) {return rand()/double(RAND_MAX);}
+    static double init_weight(void) {return rand()/double(RAND_MAX);} // randomly assigns an initial weight for each connection
     __host__ __device__ double sum_DOW(Layer *next_layer);
 
 
@@ -96,6 +105,7 @@ private:
 
 class Layer: public Managed
 {
+    // Container for all the neurons in a layer. Acts as an array.
 public:
     __host__ Layer();
     __host__ Layer(int num_neurons, int num_connections);
@@ -106,6 +116,7 @@ public:
 
 class Network: public Managed
 {
+    // Container for all layers and wrapper for calls to individual neurons.
 public:
     __host__ Network();
     __host__ void feed_forward(double *input_vals, int input_vals_length);
@@ -129,6 +140,7 @@ double Network::RAS = 100.0; //Number of training samples to average over
 __host__
 void showVectorVals(string label, double *v, int length)
 {
+    // Print out results nicely
     cout << label << " ";
     for (unsigned i = 0; i < length; ++i) {
         cout << v[i] << " ";
@@ -139,6 +151,13 @@ void showVectorVals(string label, double *v, int length)
 __global__
 void neuron_global_feed_forward(Neuron *neuron, double *sum, Layer *prev_layer)
 {
+    // Stands in as a neuron's sum. Gets all the outputs from the previous
+    //  layer, multiplies them by the weights of the connections, and sums
+    //  the results. The sum is assigned to the output of the given neuron.
+
+    // In theory, this should be parallelizable for all neurons within the same
+    //  layer, as neurons on the same layer do not effect each other. This did
+    //  not seem to be the case.
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     int stride = blockDim.x * gridDim.x;
     for (int n = index; n < prev_layer->length; n+=stride) {
@@ -151,6 +170,10 @@ void neuron_global_feed_forward(Neuron *neuron, double *sum, Layer *prev_layer)
 __global__
 void neuron_global_sum_DOW(Neuron *neuron, double *sum, Layer *next_layer)
 {
+    // Sums the Derivative of Weights, which will be used to calculate the
+    //  gradient and adjust the weights of the connections for the next pass.
+
+    // Should be parallelizable within a layer.
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     int stride = blockDim.x * gridDim.x;
     for (int n = index; n < next_layer->length - 1; n+=stride) {
@@ -161,6 +184,8 @@ void neuron_global_sum_DOW(Neuron *neuron, double *sum, Layer *next_layer)
 __global__
 void neuron_global_update_input_weights(Neuron *neuron, Layer *prev_layer)
 {
+    // Based on the previous delta_weight and the gradient, updates the input
+    //  weight to each neuron in order to minimize error from output.
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     int stride = blockDim.x * gridDim.x;
     for (int n = index; n < prev_layer->length; n+=stride) {
@@ -176,6 +201,7 @@ void neuron_global_update_input_weights(Neuron *neuron, Layer *prev_layer)
                 + MOMENTUM
                 * old_delta_weight;
 
+        // Adjust the connections
         prev_neuron->output_weights[neuron->my_index]->delta_weight = new_delta_weight;
         prev_neuron->output_weights[neuron->my_index]->weight += new_delta_weight;
 
@@ -186,11 +212,15 @@ void neuron_global_update_input_weights(Neuron *neuron, Layer *prev_layer)
 __global__
 void net_global_feed_forward(Layer *layer, Layer *prev_layer)
 {
+    // Wrapper around each step of the feed forward process. Given two sequential
+    //  layers, iterates through the neurons and performs their feed_forward method.
+    //  Each layer must run sequentially, and thus is not parallelizable.
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     int stride = blockDim.x * gridDim.x;
 
     for(int i=index; i < layer->length-1;i+=stride){
-
+        // Call to the neuron device function feed_forward.
+        //  Ideally, all neuron feed_forwards are calculated simultaneously.
         layer->layer[i]->feed_forward(prev_layer);
     }
 
@@ -199,9 +229,14 @@ void net_global_feed_forward(Layer *layer, Layer *prev_layer)
 __global__
 void net_global_update_weights(Layer *layer, Layer *prev_layer)
 {
+    // Wrapper around the update weight process. Given two sequential layers,
+    //  iterates through the neurons and calculates the gradients.
+    //  Each layer must run sequentially, and thus is not parallelizable.
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     int stride = blockDim.x * gridDim.x;
     for(int i=index; i < layer->length-1;i+=stride){
+        // Call to the neuron device function update_input_weights.
+        //  Ideally, all neuron calculate_hidden_gradients are calculated simultaneously
         layer->layer[i]->update_input_weights(prev_layer);
     }
 
@@ -210,9 +245,14 @@ void net_global_update_weights(Layer *layer, Layer *prev_layer)
 __global__
 void net_global_backprop(Layer *hidden_layer, Layer *next_layer)
 {
+    // Wrapper around the backpropagation. Given two sequential layers,
+    //  iterates through the neurons and calculates the gradients.
+    //  Each layer must run sequentially, and thus is not parallelizable.
     int index = blockIdx.x * blockDim.x + threadIdx.x;
     int stride = blockDim.x * gridDim.x;
     for (int n = index; n < hidden_layer->length; n+=stride) {
+        // Call to the neuron device function calculate_hidden_gradients.
+        //  Ideally, all neuron calculate_hidden_gradients are calculated simultaneously
         hidden_layer->layer[n]->calculate_hidden_gradients(next_layer);
     }
 
@@ -224,7 +264,7 @@ __host__
 __device__
 void Neuron::update_input_weights(Layer *prev_layer)
 {
-
+    // wrapper that calls update_input_weights, parallelizing them.
     neuron_global_update_input_weights<<<NUM_BLOCKS, THREADS_PER_BLOCK>>> (this, prev_layer);
     cudaDeviceSynchronize();
 }
@@ -232,7 +272,7 @@ __host__
 __device__
 double Neuron::sum_DOW(Layer *next_layer)
 {
-    // double* sum;
+    // wrapper that calculates the derivative of weights based on the error
     *DOW_sum = 0.0;
     // Sum our contributions of the errors at the nodes we feed.
 
@@ -244,6 +284,7 @@ __host__
 __device__
 void Neuron::calculate_hidden_gradients(Layer *next_layer)
 {
+    // Uses the derivative of weights to calculate the gradient, which is used to update the weights.
     double dow = sum_DOW(next_layer);
     gradient = dow * Neuron::transfer_function_derivative(output);
 }
@@ -252,6 +293,7 @@ __host__
 __device__
 void Neuron::calculate_output_gradient(double target_val)
 {
+    // Calculates error, then uses it to determine output gradients.
     double delta = target_val - output;
     gradient = delta * Neuron::transfer_function_derivative(output);
 }
@@ -260,19 +302,21 @@ __host__
 __device__
 double Neuron::transfer_function_derivative(double x)
 {
+    // Derivative transfer function to calculate derivative of weights
     return 1.0 - x * x;
 }
 __host__
 __device__
 double Neuron::transfer_function(double x)
 {
-    ///tanh - output range [-1.0, 1.0]
+    // Transfer function to determine the output value
     return tanh(x);
 }
 __host__
 __device__
 void Neuron::feed_forward(Layer *prev_layer)
 {
+    // feed_forward wrapper
     *FF_sum = 0.0;
 
     neuron_global_feed_forward<<<1, 1>>>(this, FF_sum, prev_layer);
@@ -288,6 +332,8 @@ Neuron::Neuron()
 __host__
  Neuron::Neuron(int num_connections, int index)
 {
+    // Initializes a neuron and makes sure that all pointers are in
+    //  unified memory
     cudaMallocManaged(&output_weights, sizeof(Connection *)*num_connections);
     for (unsigned i = 0; i < num_connections; ++i){
         Connection* c;
@@ -313,10 +359,11 @@ Layer::Layer()
 __host__
 Layer::Layer(int num_neurons, int num_connections)
 {
+    // Creates a new layer and ensures that everything is in unified memory.
     cudaMallocManaged(&layer, sizeof(Neuron *)*num_neurons);
     for(int i=0;i<=num_neurons;i++){
         Neuron *n;
-        cudaMallocManaged(&n, sizeof(Neuron));
+        cudaMallocManaged(&n, sizeof(Neuron)); // possibly redundant
         *n = Neuron(num_connections, i);
         n->set_output(1.0);
         layer[i] = n;
@@ -328,6 +375,7 @@ Layer::Layer(int num_neurons, int num_connections)
 __host__
 void Network::get_results(double *result_vals, int result_length)
 {
+    // Assigns the results to result_vals
     for(unsigned n = 0; n < result_length; ++n){
         Layer* output_layer = layers[NUM_HIDDEN_LAYERS+1];
         result_vals[n] = (output_layer->layer[n]->get_output());
@@ -337,6 +385,9 @@ void Network::get_results(double *result_vals, int result_length)
 __host__
 void Network::back_prop(double * target_vals, int target_length)
 {
+    // Performs backpropagation, making sure everything runs sequentially as needed.
+    //  Each time cudaDeviceSynchronize is called, we are switching between
+    //  the host and device, which is a costly operation.
     Layer* output_layer = layers[NUM_HIDDEN_LAYERS+1];
     error = 0.0;
     for(unsigned n = 0; n < output_layer->length-1; ++n){
@@ -398,6 +449,7 @@ void Network::feed_forward(double *input_vals, int input_vals_length)
 __host__
 Network::Network()
 {
+    // ensures all aspects are in unified memory
     cudaMallocManaged(&layers, sizeof(Layer *)*(NUM_HIDDEN_LAYERS+2));
     Layer * layer;
     cudaMallocManaged(&layer, sizeof(Layer));
@@ -422,8 +474,10 @@ Network::Network()
 
 
 int main(){
+    // Read training data
     TrainingData trainData("faster_training_data.txt");
 
+    // initialize network on host, but in unified memory
     Network myNet = Network();
 
     double input_vals[INPUT_SIZE];
