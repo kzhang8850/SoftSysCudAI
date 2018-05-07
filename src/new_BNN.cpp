@@ -399,14 +399,14 @@ int main(){
     while (!trainData.isEof()) {
         // For every line in trainingData, feedforward and then backpropagate
         ++training_pass;
-        cout << endl << "Pass " << training_pass;
+        cout << endl << "Pass " << training_pass << endl;
 
         // Get new input data and feed it forward:
         trainData.getNextInputs(input_vals);
         // cout << input_vals[0] << input_vals[1] << endl;
 
         // Get new input data and feed it forward:
-        showVectorVals(": Inputs:", input_vals, INPUT_SIZE);
+        showVectorVals("Inputs:", input_vals, INPUT_SIZE);
         myNet.feed_forward(input_vals, INPUT_SIZE);
 
         // Collect the net's actual output results:

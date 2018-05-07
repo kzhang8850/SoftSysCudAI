@@ -487,7 +487,7 @@ int main(){
 
     while (!trainData.isEof()) {
         ++training_pass;
-        cout << endl << "Pass " << training_pass;
+        cout << endl << "Pass " << training_pass << endl;
 
         // Get new input data and feed it forward:
         trainData.getNextInputs(input_vals);
