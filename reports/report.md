@@ -11,10 +11,10 @@ Our main goals for this project are to learn the theory behind neural networks a
 ### Our Accomplishment
 By the end of this project, we were able to successfully implement our own neural network. Our neural network is made up of many neurons arranged in layers. Each of these neurons is what is known as a perceptron. Every neuron has a weighted connection to all the neurons in the previous layer and all the neurons in the next layer. It sums the results of all the inputs, modified by the weights and the network’s transfer function, and passes this value to the next layer, until we reach the output layer. To begin with, these weights are random. During the supervised training, the network takes inputs, pushes it through the layers, and reports the output. Based on the error between the reported output and the desired output, it then corrects the weights through backpropagation. This is a method where the error is used to calculate the gradient and the weights are adjusted to minimize error through a gradient descent algorithm.
 
-Our project consists of two major milestones. The first is a working, non-parallel neural network in C++. As shown in Figure 1, it is structured by classes--specifically, a Network, a number of Layers in the network, and several Neurons per layer, each of which holds a Connection struct for each of the other Neurons in the neighboring layers and which hold the weights and deltas. This network reports a final average error of about 0.002 on an XOR data set, taking 0.335 seconds to train on 100,000 samples (averaged over 100 runs), as shown in Figure 2.
-
 ![Code Architecture Animation](https://media.giphy.com/media/xlCHGS3xU5g0SwPbdf/giphy.gif)
 ##### Figure 1: Code architecture. Networks contain layers, layers contain neurons, and neurons contain connections to other neurons.
+
+Our project consists of two major milestones. The first is a working, non-parallel neural network in C++. As shown in Figure 1, it is structured by classes--specifically, a Network, a number of Layers in the network, and several Neurons per layer, each of which holds a Connection struct for each of the other Neurons in the neighboring layers and which hold the weights and deltas. This network reports a final average error of about 0.002 on an XOR data set, taking 0.335 seconds to train on 100,000 samples (averaged over 100 runs), as shown in Figure 2.
 
 ![C++ Initial Values](https://i.imgur.com/jYwn0x8.png)
 ![C++ Final Results](https://i.imgur.com/kXkg638.png)
