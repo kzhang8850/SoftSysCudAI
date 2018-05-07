@@ -1,4 +1,4 @@
-all: cuda_BNN_faster cuda_BNN new_BNN
+all: cuda_BNN new_BNN
 
 cuda_BNN: cuda_BNN.cu training_reader.cu training_reader.cuh
 	nvcc -arch=sm_35 -rdc=true cuda_BNN.cu training_reader.cu -o cuda_BNN -lcudadevrt

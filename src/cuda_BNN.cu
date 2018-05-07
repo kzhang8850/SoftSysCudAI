@@ -475,7 +475,7 @@ Network::Network()
 
 int main(){
     // Read training data
-    TrainingData trainData("faster_training_data.txt");
+    TrainingData trainData("final_training_data.txt");
 
     // initialize network on host, but in unified memory
     Network myNet = Network();
@@ -487,26 +487,26 @@ int main(){
 
     while (!trainData.isEof()) {
         ++training_pass;
-        // cout << endl << "Pass " << training_pass;
+        cout << endl << "Pass " << training_pass;
 
         // Get new input data and feed it forward:
         trainData.getNextInputs(input_vals);
 
         // Get new input data and feed it forward:
-        // showVectorVals("Inputs:", input_vals, INPUT_SIZE);
+        showVectorVals("Inputs:", input_vals, INPUT_SIZE);
         myNet.feed_forward(input_vals, INPUT_SIZE);
 
         // Collect the net's actual output results:
         myNet.get_results(result_vals, OUTPUT_SIZE);
-        // showVectorVals("Outputs:", result_vals, OUTPUT_SIZE);
+        showVectorVals("Outputs:", result_vals, OUTPUT_SIZE);
 
         // Train the net what the outputs should have been:
         trainData.getTargetOutputs(target_vals);
-        // showVectorVals("Targets:", target_vals, OUTPUT_SIZE);
+        showVectorVals("Targets:", target_vals, OUTPUT_SIZE);
         myNet.back_prop(target_vals, OUTPUT_SIZE);
 
         // Report how well the training is working, average over recent samples:
-        // cout << "Net recent average error: " << myNet.get_RAE() << endl;
+        cout << "Net recent average error: " << myNet.get_RAE() << endl;
     }
     cout << endl << "Done!" << endl;
     return 0;
