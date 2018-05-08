@@ -23,6 +23,7 @@ Our project consists of two major milestones. The first is a working, non-parall
 
 The next milestone was incorporating CUDA to parallelize the processing and speed up the neural network. Transferring from C++ to CUDA, we built a number of simple programs to help understand CUDA programming. For instance, [managed_working_example.cu](https://github.com/kzhang8850/SoftSysCudAI/blob/master/managed_working_example.cu) is a testbed for us to understand the [unified memory system](https://devblogs.nvidia.com/unified-memory-in-cuda-6/).  
 
+
 ![Unified Memory diagram](https://i.imgur.com/garEErX.png)
 
 ##### Figure 3: A high level graphic showing the relationship between the CPU, where all processes generally start off from (the blue), and the GPU, which is used in parallel for its speed (the green). The left shows how managing memory is difficult between the two processors when the two memory banks are separate, but the right shows how unified memory can help make using the GPU easier by simplifying memory usage. Note that “dramatically lowering developer effort” only applies to the API itself, the user still has just as hard a time learning how to use it… [Image source](https://devblogs.nvidia.com/unified-memory-in-cuda-6/)
