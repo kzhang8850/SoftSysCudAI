@@ -23,7 +23,7 @@ Our project consists of two major milestones. The first is a working, non-parall
 
 The next milestone was incorporating CUDA to parallelize the processing and speed up the neural network. Transferring from C++ to CUDA, we built a number of simple programs to help understand CUDA programming. For instance, [managed_working_example.cu](https://github.com/kzhang8850/SoftSysCudAI/blob/master/managed_working_example.cu) is a testbed for us to understand the [unified memory system](https://devblogs.nvidia.com/unified-memory-in-cuda-6/).  
 
-The most notable obstacle with incorporating CUDA is that of memory. Using CUDA means using your graphics card’s computational power to boost your process’s CPU. In general, a program will start on a process that utilizes the CPU’s memory to read and write data, as well as perform operations. CUDA allows you to switch onto the GPU temporarily instead, thus increasing your read/write/operate speeds significantly. The GPU also has the ability to multithread at significantly larger scales than the CPU, thus allowing you to parallelize your program at massively high orders of magnitude. Moving from the CPU (the “host”) to the GPU (the “device”) so the GPU’s power can be utilized boils down to a memory issue, as shown by the graphic in Figure 3, which shows a simplified view of the CPU and GPU. In order to use CUDAs interface with the GPU, memory must be allocated properly such that the GPU can understand how to interact with it. This includes creating unified memory, proper initializations of variables, tagging functions for correct identification of being host-side or device-side, and more.
+
 
 ![Unified Memory diagram](https://i.imgur.com/garEErX.png)
 
